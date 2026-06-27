@@ -32,6 +32,7 @@ Thumbs.db
 *.jar
 *.class
 *.exe
+*.dll
 *.msi
 *.zip
 *.7z
