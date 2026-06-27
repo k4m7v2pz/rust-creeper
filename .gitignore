@@ -1,6 +1,10 @@
 # Rust build artifacts
 target/
 
+# Binary artifacts — JAR, class, etc.
+*.jar
+*.class
+
 # Reference projects — cloned repos, not committed
 reference/*
 !reference/README.md
