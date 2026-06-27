@@ -1,0 +1,11 @@
+#!/bin/bash
+# AtomCode post-commit hook: 自动推送代码
+# 每次 git commit 成功后自动执行 git push
+
+echo "[AtomCode] 🔄 检测到新提交，正在推送..."
+git push 2>&1
+if [ $? -eq 0 ]; then
+    echo "[AtomCode] ✅ 推送成功"
+else
+    echo "[AtomCode] ⚠️ 推送失败，请手动推送"
+fi

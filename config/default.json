@@ -1,0 +1,37 @@
+{
+  "$schema": "./schema.json",
+  "target": {
+    "host": "127.0.0.1",
+    "port": 25565,
+    "version": "1.21.1",
+    "count": 20,
+    "join_delay_ms": 1000
+  },
+  "bot": {
+    "name_format": "Bot-%d",
+    "auto_register": false,
+    "join_commands": [],
+    "auto_respawn_delay_ms": -1,
+    "max_attempts": 1
+  },
+  "proxy": {
+    "list": [],
+    "file": null,
+    "url": null,
+    "verify": true
+  },
+  "nickname": {
+    "realistic": false,
+    "file": null,
+    "length": 16,
+    "prefix": ""
+  },
+  "server": {
+    "ping_on_start": true
+  },
+  "api": {
+    "enabled": false,
+    "bind": "127.0.0.1",
+    "port": 9720
+  }
+}

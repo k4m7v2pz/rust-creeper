@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "post_tool_use": [
+      {
+        "matcher": {
+          "tool": "edit_file",
+          "file_pattern": "src/**/*.rs"
+        },
+        "command": "cd /Users/user2/Documents/Code.localized/rust-tokio-lambda-attack && cargo fmt --quiet 2>&1"
+      },
+      {
+        "matcher": {
+          "tool": ["edit_file", "write_file"],
+          "file_pattern": ["src/**", "docs/**", ".atomcode/**"]
+        },
+        "command": "bash .atomcode/hooks/git-auto-commit.sh /Users/user2/Documents/Code.localized/rust-tokio-lambda-attack"
+      }
+    ]
+  }
+}

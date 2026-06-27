@@ -1,21 +1,14 @@
-LambdaAttack is currently not actively maintained. If you need a comparable bot tool, try out [SoulFire](https://github.com/AlexProgrammerDE/SoulFire). It is a maintained fork with extra features.
+# LambdaAttack (Rust)
 
----
-
-# LambdaAttack
-
-## Description
-
-Minecraft bot. Currently used for stress testing.
+Minecraft stress-test bot.  
+**Rust port** of [games647/LambdaAttack](https://github.com/games647/LambdaAttack).
 
 ## Features
 
-* Graphical user interface
 * Command line interface
 * Configurable amount and join delay
 * Configurable target
 * Configurable name format or name list
-* LogPanel to see errors directly
 * Test with Spigot, Paper
 * Disconnects gracefully after the end
 * Automatically registers for cracked servers
@@ -25,45 +18,85 @@ Minecraft bot. Currently used for stress testing.
 
 ## Requirements
 
-* Java 9
-* Minecraft 1.11+ server
-
-## Downloads
-
-https://github.com/games647/LambdaAttack/releases
+* Rust 1.75+
+* Minecraft 1.21.1+ server (for the current protocol implementation)
 
 ## Building
 
-1. Download Apache [Maven](https://maven.apache.org/download.cgi)
-2. Unpack it
-3. Optionally add the bin folder to your PATH variable to invoke Maven with mvn without specifying the complete path to the bin folder for every command
-4. Download this project with Git (git clone <URL/git@github:...>) or as zip
-5. Move to the top folder of the project conting the pom.xml
-6. Run `mvn clean install`
-7. The final version is inside the core/target folder
+```bash
+cargo build --release
+cargo test
+```
 
-## Images
+## Usage
 
-![Gui](https://i.imgur.com/6U00ZwA.png)
+```
+cargo run --release -- [OPTIONS]
+```
 
-## Command Line Usage
-To run LambdaAttack from the command line without a GUI, enter  
-`java -jar lambdaattack.jar <options>`.
+| Flag                 | Description                                                                        |
+|----------------------|------------------------------------------------------------------------------------|
+| `-h`, `--host`       | Server hostname. Default `127.0.0.1`                                               |
+| `-p`, `--port`       | Server port. Default `25565`                                                       |
+| `-c`, `--count`      | Number of bots. Default `20`                                                       |
+| `-d`, `--delay`      | Spawn delay in milliseconds. Default `1000`                                        |
+| `-n`, `--name`       | Bot name format (requires `%d`). Default `Bot-%d`                                  |
+| `-v`, `--version`    | Minecraft version. Default `1.15.2`                                                |
+| `-r`, `--register`   | Auto /register + /login on join                                                    |
+| `--help`             | Print help                                                                         |
 
-These are the available options:
+## Project Structure
 
-| Name                  | Description                                                                                                   |
-|-----------------------|---------------------------------------------------------------------------------------------------------------|
-| -h, --host \<arg\>    | The hostname to connect to. Defaults to `127.0.0.1`                                                           |
-| -p, --port \<arg\>    | The port to connect to. Defaults to `25565`                                                                   |
-| -c, --count \<arg\>   | The amount of bots to connect to the server. Defaults to 20                                                   |
-| -d, --delay \<arg\>   | The delay between bot spawns, in milliseconds. Defaults to 1000                                               |
-| -n, --name \<arg\>    | The format for bot names. Requires exactly one integer placeholder `%d`. Defaults to `Bot-%d`                 |
-| -v, --version \<arg\> | The Minecraft version of the server to connect to. Defaults to 1.15.2                                         |
-| -r, --register        | Makes Bots run the /register and /login command after joining with username and password being `LambdaAttack` |
-| --help                | Displays a help page                                                                                          |
+```
+├── Cargo.toml                  # Workspace root
+├── protocol/                   # Protocol traits (UniversalProtocol, GameVersion, etc.)
+├── protocol-v1_21_1/           # 1.21.1 protocol implementation
+└── core/                       # Orchestration logic (CLI, bot spawning, attack)
+```
 
-## Dependencies
+## License
 
-* Java 9
-* McProtocolLib: https://github.com/Steveice10/MCProtocolLib
+**Unlicense** — see [LICENSE](LICENSE).  
+This project is released into the public domain.
+
+### Attribution (MIT — original Java project)
+
+This Rust port is based on the original Java project  
+[games647/LambdaAttack](https://github.com/games647/LambdaAttack),  
+which is licensed under the MIT License:
+
+> The MIT License (MIT)
+> Copyright (c) 2016
+> 
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+> 
+> The above copyright notice and this permission notice shall be included in all
+> copies or substantial portions of the Software.
+> 
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE.
+
+### Embedded Reference Implementations
+
+参考仓库统一放在 [`reference/`](reference/)，详见 [`reference/README.md`](reference/README.md)。
+
+| 项目 | 许可证 | 目录 | 说明 |
+|---|---|---|---|
+| [GeyserMC/MCProtocolLib](https://github.com/GeyserMC/MCProtocolLib) | MIT | `reference/mcprotocollib/` | Java Minecraft 协议库（1.11.2 ~ 1.21.7 tags） |
+| [crpmax/mc-bots](https://github.com/crpmax/mc-bots) | MIT | `reference/mc-bots-ref/` | Java Minecraft 机器人压力测试 |
+| [Titlehhhh/Minecraft-Holy-Client](https://github.com/Titlehhhh/Minecraft-Holy-Client) | Apache 2.0 | `reference/holy-client-ref/` | C# 高性能压力测试机器人 |
+
+### Friends
+
+- [MCProtocolLib](https://github.com/Steveice10/MCProtocolLib) — Original Minecraft protocol library (MIT)
+- [azalea](https://github.com/azalea-rs/azalea) — Rust Minecraft bot framework

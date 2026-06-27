@@ -1,0 +1,12 @@
+#!/bin/bash
+# AtomCode pre-commit hook: 提交前检查
+# 确保 cargo check 通过后再允许提交
+
+echo "[AtomCode] 🔍 提交前检查: cargo check..."
+cd "$(git rev-parse --show-toplevel)"
+cargo check 2>&1
+if [ $? -ne 0 ]; then
+    echo "[AtomCode] ❌ cargo check 失败，请修复后再提交"
+    exit 1
+fi
+echo "[AtomCode] ✅ cargo check 通过"
