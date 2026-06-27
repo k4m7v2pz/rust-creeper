@@ -1,9 +1,16 @@
 # Rust build artifacts
 target/
 
-# Binary artifacts — JAR, class, etc.
+# Binary artifacts
 *.jar
 *.class
+*.exe
+*.msi
+*.zip
+*.7z
+*.rar
+*.tar.gz
+*.tar
 
 # Reference projects — cloned repos, not committed
 reference/*
