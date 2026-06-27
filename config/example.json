@@ -1,0 +1,44 @@
+{
+  "$schema": "./schema.json",
+  "target": {
+    "host": "mc.example.com",
+    "port": 25565,
+    "version": "1.21.1",
+    "count": 50,
+    "join_delay_ms": 200
+  },
+  "bot": {
+    "name_format": "Bot-%d",
+    "auto_register": true,
+    "join_commands": [
+      "register LambdaAttack LambdaAttack",
+      "login LambdaAttack"
+    ],
+    "auto_respawn_delay_ms": 3000,
+    "max_attempts": 3
+  },
+  "proxy": {
+    "list": [
+      "socks5://127.0.0.1:1080",
+      "socks4://10.0.0.1:4145",
+      "http://user:pass@proxy.example.com:8080"
+    ],
+    "file": "/etc/lambdaattack/proxies.txt",
+    "url": "https://example.com/proxies.txt",
+    "verify": true
+  },
+  "nickname": {
+    "realistic": true,
+    "file": "/etc/lambdaattack/nicks.txt",
+    "length": 12,
+    "prefix": "LA_"
+  },
+  "server": {
+    "ping_on_start": true
+  },
+  "api": {
+    "enabled": true,
+    "bind": "0.0.0.0",
+    "port": 9720
+  }
+}

@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://lambdaattack.dev/config/schema.json",
+  "title": "LambdaAttack Configuration",
+  "description": "Configuration schema for LambdaAttack Minecraft stress-test bot",
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "object",
+      "description": "Target server settings",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Server hostname or IP address",
+          "default": "127.0.0.1",
+          "examples": ["mc.example.com", "192.168.1.100"]
+        },
+        "port": {
+          "type": "integer",
+          "description": "Server port",
+          "default": 25565,
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "version": {
+          "type": "string",
+          "description": "Minecraft version (see protocol.rs for full list)",
+          "default": "1.21.1",
+          "examples": ["1.21.1", "1.20.6", "1.16.5", "1.12.2"]
+        },
+        "count": {
+          "type": "integer",
+          "description": "Number of bots to spawn",
+          "default": 20,
+          "minimum": 1
+        },
+        "join_delay_ms": {
+          "type": "integer",
+          "description": "Delay between bot spawns (milliseconds)",
+          "default": 1000,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "bot": {
+      "type": "object",
+      "description": "Bot behaviour settings",
+      "properties": {
+        "name_format": {
+          "type": "string",
+          "description": "Bot name format. Use %d as placeholder for index",
+          "default": "Bot-%d",
+          "examples": ["Bot-%d", "Player_%d", "test-%04d"]
+        },
+        "auto_register": {
+          "type": "boolean",
+          "description": "Auto-run /register and /login on join (for cracked servers)",
+          "default": false
+        },
+        "join_commands": {
+          "type": "array",
+          "description": "Commands to run on join (each sent as /<command>)",
+          "items": { "type": "string" },
+          "default": [],
+          "examples": [["register pass pass", "login pass"]]
+        },
+        "auto_respawn_delay_ms": {
+          "type": "integer",
+          "description": "Auto-respawn delay (-1 = disabled)",
+          "default": -1,
+          "minimum": -1
+        },
+        "max_attempts": {
+          "type": "integer",
+          "description": "Max connection attempts per bot (retry if kicked). 1 = no retry",
+          "default": 1,
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "proxy": {
+      "type": "object",
+      "description": "Proxy settings for bot connections",
+      "properties": {
+        "list": {
+          "type": "array",
+          "description": "Proxy URLs (socks4:// socks5:// http:// ). One per entry",
+          "items": { "type": "string", "pattern": "^\\w+://.+:\\d+$" },
+          "default": [],
+          "examples": [["socks5://127.0.0.1:1080", "socks4://10.0.0.1:4145", "http://user:pass@proxy.example.com:8080"]]
+        },
+        "file": {
+          "type": "string",
+          "description": "Path to proxy list file (one URL per line)",
+          "default": null
+        },
+        "url": {
+          "type": "string",
+          "description": "URL to fetch proxy list from",
+          "format": "uri",
+          "default": null
+        },
+        "verify": {
+          "type": "boolean",
+          "description": "Verify proxies by pinging target before use",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "nickname": {
+      "type": "object",
+      "description": "Nickname generation settings",
+      "properties": {
+        "realistic": {
+          "type": "boolean",
+          "description": "Use realistic-looking nicknames from built-in list",
+          "default": false
+        },
+        "file": {
+          "type": "string",
+          "description": "Path to custom nickname file (one per line)",
+          "default": null
+        },
+        "length": {
+          "type": "integer",
+          "description": "Random nickname length",
+          "default": 16,
+          "minimum": 1,
+          "maximum": 64
+        },
+        "prefix": {
+          "type": "string",
+          "description": "Nickname prefix",
+          "default": "",
+          "examples": ["LA_", "Bot_"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "server": {
+      "type": "object",
+      "description": "Server info settings",
+      "properties": {
+        "ping_on_start": {
+          "type": "boolean",
+          "description": "Ping the server for MOTD/players on startup",
+          "default": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "api": {
+      "type": "object",
+      "description": "REST API settings",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable REST API server",
+          "default": false
+        },
+        "bind": {
+          "type": "string",
+          "description": "API bind address",
+          "default": "127.0.0.1"
+        },
+        "port": {
+          "type": "integer",
+          "description": "API port",
+          "default": 9720,
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
