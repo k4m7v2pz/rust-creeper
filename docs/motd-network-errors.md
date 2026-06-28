@@ -58,7 +58,7 @@
 - 域名被删除或未注册
 - 拼写错误（typo）
 
-**实测**: `i520.gay`、`mc.sunnyrain.top`、`9b9t.92mc.top` 均为此类。域名本身已不存在于 DNS 系统中。
+**实测**: `server-a.example.com`、`server-b.example.net`、`server-c.example.org` 均为此类。域名本身已不存在于 DNS 系统中。
 
 **排查**: `dig +short <domain>` / `nslookup <domain>`
 
@@ -126,7 +126,7 @@ nc -zv <host> <port>     # 测试端口是否开放
 nmap -p <port> <host>     # 扫描端口状态
 ```
 
-**实测**: `play.simpfun.cn:14358`、`07f4acdef99b.ofalias.net:55673`、`ratratme.us.ci` 均为此类。域名能解析到 IP，但目标端口没人监听。
+**实测**: `play.example.com:25565`、`07f4ac.example.net:55673`、`rat.example.ci` 均为此类。域名能解析到 IP，但目标端口没人监听。
 
 **状态**: ✅ 已遇到（4 次，最常见）
 
@@ -150,7 +150,7 @@ mtr -r <host>             # 看路由在哪跳丢包
 traceroute <host>         # 追踪路由路径
 ```
 
-**实测**: `168.119.210.168:2843`、`22fish.top:25565` 均超时。IP 可达但端口无响应，大概率是防火墙静默丢弃或服务器已关机。
+**实测**: `198.51.100.1:2843`、`server-d.example.top:25565` 均超时。IP 可达但端口无响应，大概率是防火墙静默丢弃或服务器已关机。
 
 **状态**: ✅ 已遇到（2 次）
 
@@ -348,15 +348,15 @@ traceroute <host>         # 追踪路由路径
 
 | # | 服务器 | 结果 | 根因 | 分类 |
 |---|--------|------|------|------|
-| 1 | `i520.gay:25565` | DNS 解析失败 | 域名过期/不存在 | DNS |
-| 2 | `play.simpfun.cn:14358` | Connection refused | 端口无监听 | TCP |
-| 3 | `n2-28.yxsjmc.cn:21996` | ✅ **成功** | – | – |
-| 4 | `168.119.210.168:2843` | Timed out | 防火墙静默丢弃/关机 | TCP |
-| 5 | `mc.sunnyrain.top:25565` | DNS 解析失败 | 域名过期/不存在 | DNS |
-| 6 | `9b9t.92mc.top:25565` | DNS 解析失败 | 域名过期/不存在 | DNS |
-| 7 | `22fish.top:25565` | Timed out | 防火墙静默丢弃/关机 | TCP |
-| 8 | `07f4acdef99b.ofalias.net:55673` | Connection refused | 端口无监听 | TCP |
-| 9 | `ratratme.us.ci:25565` | Connection refused | 端口无监听 | TCP |
+| 1 | `server-a.example.com:25565` | DNS 解析失败 | 域名过期/不存在 | DNS |
+| 2 | `play.example.com:25565` | Connection refused | 端口无监听 | TCP |
+| 3 | `origin.example.com:21996` | ✅ **成功** | – | – |
+| 4 | `198.51.100.1:2843` | Timed out | 防火墙静默丢弃/关机 | TCP |
+| 5 | `server-b.example.net:25565` | DNS 解析失败 | 域名过期/不存在 | DNS |
+| 6 | `server-c.example.org:25565` | DNS 解析失败 | 域名过期/不存在 | DNS |
+| 7 | `server-d.example.top:25565` | Timed out | 防火墙静默丢弃/关机 | TCP |
+| 8 | `07f4ac.example.net:55673` | Connection refused | 端口无监听 | TCP |
+| 9 | `rat.example.ci:25565` | Connection refused | 端口无监听 | TCP |
 
 ### 统计
 

@@ -34,6 +34,8 @@ pub struct ServerInfo {
     pub players_online: u32,
     /// Maximum player count
     pub players_max: u32,
+    /// Online player names collected from SLP sample (may be empty/incomplete)
+    pub players: Vec<String>,
     /// Base64-encoded favicon PNG (Java only, optional)
     pub favicon: Option<String>,
 }
@@ -174,6 +176,11 @@ pub fn ping_java(host: &str, port: u16, protocol_version: i32) -> Result<ServerI
         motd: strip_motd_formatting(&resp.description),
         players_online: resp.players_online,
         players_max: resp.players_maximum,
+        players: resp.players
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.name)
+            .collect(),
         favicon: resp.favicon.clone(),
     })
 }
@@ -198,6 +205,7 @@ pub fn ping_bedrock(host: &str, port: u16) -> Result<ServerInfo> {
         motd: strip_motd_formatting(desc),
         players_online: online,
         players_max: max,
+        players: vec![],
         favicon: None, // Bedrock doesn't have a favicon
     })
 }
@@ -260,6 +268,7 @@ pub fn ping(host: &str, port: u16, protocol_version: i32, use_cache: bool) -> Pi
             motd: String::new(),
             players_online: 0,
             players_max: 0,
+            players: vec![],
             favicon: None,
         },
         protocol: Protocol::Java,
@@ -282,6 +291,10 @@ pub fn print_server_info(result: &PingResult) {
     println!("│ Version  : {} (protocol {})", info.game_version, info.protocol_version);
     println!("│ MOTD     : {}", info.motd);
     println!("│ Players  : {}/{}", info.players_online, info.players_max);
+    if !info.players.is_empty() {
+        let names = info.players.join(", ");
+        println!("│ Online   : {}", names);
+    }
     if let Some(ref f) = info.favicon {
         println!("│ Favicon  : ✓ ({} bytes)", f.len());
     }
@@ -289,6 +302,164 @@ pub fn print_server_info(result: &PingResult) {
         println!("│ Cache    : {}", cache);
     }
     println!("└────────────────────────────────────────────────");
+}
+
+// -------------------- Player-name monitor --------------------
+
+use std::collections::{BTreeSet, HashMap};
+use std::time::{Duration, SystemTime as _, UNIX_EPOCH as _};
+
+/// Persistent storage for player names seen across monitor runs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerJournal {
+    /// Host:port → set of player names ever seen
+    pub seen: HashMap<String, BTreeSet<String>>,
+    /// Host:port → first-seen timestamp
+    pub first_seen: HashMap<String, u64>,
+    /// Host:port → last-seen timestamp
+    pub last_seen: HashMap<String, u64>,
+}
+
+impl Default for PlayerJournal {
+    fn default() -> Self {
+        Self {
+            seen: HashMap::new(),
+            first_seen: HashMap::new(),
+            last_seen: HashMap::new(),
+        }
+    }
+}
+
+impl PlayerJournal {
+    fn path() -> Result<PathBuf> {
+        let base = directories::ProjectDirs::from("", "", "lambdaattack")
+            .context("Cannot determine data directory")?
+            .data_dir()
+            .join("player-journal.json");
+        Ok(base)
+    }
+
+    /// Load journal from disk.
+    pub fn load() -> Self {
+        let path = match Self::path() {
+            Ok(p) => p,
+            Err(_) => return Self::default(),
+        };
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Save journal to disk.
+    pub fn save(&self) {
+        let path = match Self::path() {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_string_pretty(self) {
+            let _ = fs::write(&path, json);
+        }
+    }
+
+    /// Record the player names seen in this ping.
+    pub fn record(&mut self, host: &str, port: u16, players: &[String]) {
+        let key = format!("{}:{}", host, port);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let entry = self.seen.entry(key.clone()).or_default();
+        for name in players {
+            if entry.insert(name.clone()) {
+                // New player — log it
+                log::info!("[journal] NEW PLAYER {} on {}:{}", name, host, port);
+            }
+        }
+        self.first_seen.entry(key.clone()).or_insert(now);
+        self.last_seen.insert(key, now);
+    }
+
+    /// Print a summary of all recorded players.
+    pub fn print_summary(&self, host: &str, port: u16) {
+        let key = format!("{}:{}", host, port);
+        if let Some(players) = self.seen.get(&key) {
+            println!("┌─ Player Journal ────────────────────────────");
+            println!("│ Server  : {key}");
+            println!("│ Total   : {} unique players", players.len());
+            for name in players {
+                let first = self.first_seen.get(&key).copied().unwrap_or(0);
+                let last = self.last_seen.get(&key).copied().unwrap_or(0);
+                println!("│ - {name}");
+            }
+            println!("└──────────────────────────────────────────────");
+        }
+    }
+}
+
+/// Run a continuous monitor loop: ping the server every `interval`, collect
+/// player names, and persist them to the journal.
+///
+/// Press Ctrl+C to stop.
+pub async fn monitor(
+    host: &str,
+    port: u16,
+    protocol_version: i32,
+    interval: Duration,
+) -> Result<()> {
+    let mut journal = PlayerJournal::load();
+    log::info!("Starting monitor for {}:{} (interval={}s)", host, port, interval.as_secs());
+
+    let mut ping_count = 0u64;
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Monitor interrupted by user");
+                journal.save();
+                journal.print_summary(host, port);
+                break;
+            }
+            _ = tokio::time::sleep(interval) => {
+                ping_count += 1;
+                let result = ping(host, port, protocol_version, false);
+                if !result.info.motd.is_empty() {
+                    let new_players: Vec<&str> = result.info.players.iter()
+                        .filter(|n| !journal.seen.get(&format!("{}:{}", host, port))
+                            .map_or(false, |s| s.contains(*n)))
+                        .map(|s| s.as_str())
+                        .collect();
+
+                    if !new_players.is_empty() {
+                        log::info!(
+                            "[#{ping_count}] {} new player(s): {}",
+                            new_players.len(),
+                            new_players.join(", ")
+                        );
+                    }
+
+                    journal.record(host, port, &result.info.players);
+                    journal.save();
+
+                    log::info!(
+                        "[#{ping_count}] {}:{} — {} {}/{} {:?}",
+                        host, port,
+                        result.info.game_version,
+                        result.info.players_online,
+                        result.info.players_max,
+                        result.info.players,
+                    );
+                } else {
+                    log::warn!("[#{ping_count}] Server unreachable — will retry");
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
