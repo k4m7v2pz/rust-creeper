@@ -16,6 +16,7 @@ mod motd;
 mod options;
 mod protocol;
 mod service;
+mod tui;
 
 #[derive(Parser)]
 #[command(name = "lambdaattack", version, about = "Minecraft stress-test bot")]
@@ -152,10 +153,21 @@ enum Commands {
     },
 
     /// Check if a domain is behind a CDN (Cloudflare, etc.)
-    #[command(visible_alias = "c")]
+    #[command(visible_alias = "ck")]
     Check {
         /// Domain name to check
         domain: String,
+    },
+
+    /// Terminal UI dashboard (monitor + flood control)
+    #[command(visible_alias = "t")]
+    Tui {
+        /// Server hostname to monitor
+        host: Option<String>,
+
+        /// Server port
+        #[arg(short, long, default_value_t = 25565)]
+        port: u16,
     },
 
     /// Manage system service (install/start/stop/status)
@@ -316,6 +328,10 @@ async fn main() -> anyhow::Result<()> {
         Some(Commands::Check { domain }) => {
             let check = http_flood::check_cdn(&domain);
             http_flood::print_cdn_check(&check);
+        }
+
+        Some(Commands::Tui { .. }) => {
+            tui::run_tui().await?;
         }
 
         Some(Commands::Service { action }) => {
