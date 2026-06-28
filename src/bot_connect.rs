@@ -119,6 +119,34 @@ async fn read_varint_async(stream: &mut TcpStream) -> Result<i32> {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Minecraft account authentication method.
+#[derive(Debug, Clone)]
+pub enum Account {
+    /// Offline mode — no authentication, any username works.
+    Offline { username: String },
+    /// Online mode — requires Microsoft/Mojang authentication.
+    /// **Not yet implemented.** Will eventually need email/password or token.
+    Online {
+        username: String,
+        /// Placeholder for future auth token / password / refresh_token
+        _credential: String,
+    },
+}
+
+impl Account {
+    pub fn username(&self) -> &str {
+        match self {
+            Self::Offline { username } => username,
+            Self::Online { username, .. } => username,
+        }
+    }
+
+    /// Returns true for offline-mode accounts.
+    pub fn is_offline(&self) -> bool {
+        matches!(self, Self::Offline { .. })
+    }
+}
+
 /// Connection result from a bot login attempt.
 #[derive(Debug)]
 pub struct BotConnection {
@@ -128,6 +156,24 @@ pub struct BotConnection {
     /// UUID assigned by the server (for offline mode, this is usually
     /// derived from the username via OfflinePlayer:username).
     pub profile_id: Uuid,
+}
+
+/// Try to log into a Minecraft server.
+///
+/// Automatically uses offline mode or online mode based on the `account`.
+/// Online mode is **not yet implemented** and will return an error.
+pub async fn login(account: &Account, host: &str, port: u16, protocol_version: i32) -> Result<BotConnection> {
+    match account {
+        Account::Offline { username } => {
+            login_offline(host, port, username, protocol_version).await
+        }
+        Account::Online { .. } => {
+            anyhow::bail!(
+                "Online mode login is not yet implemented. \
+                 See Microsoft OAuth / Minecraft Services integration (TODO)"
+            );
+        }
+    }
 }
 
 /// Try to log into a Minecraft server in offline mode.
