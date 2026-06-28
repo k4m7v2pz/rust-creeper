@@ -1,54 +1,174 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "$id": "https://lambdaattack.dev/data/servers-schema.json",
-  "title": "LambdaAttack Server List",
-  "description": "Target server list for LambdaAttack — stores server addresses, versions, and notes",
+  "title": "LambdaAttack Server OSINT Database",
+  "description": "Open-source intelligence tracking for Minecraft servers — domain recon, network fingerprint, contact discovery",
   "type": "object",
   "properties": {
     "servers": {
       "type": "array",
-      "description": "List of target servers",
+      "description": "List of target servers with OSINT data",
       "items": {
         "type": "object",
         "properties": {
-          "host": {
-            "type": "string",
-            "description": "Server hostname or IP address",
-            "examples": ["example.com", "192.168.1.1"]
+          "sources": {
+            "type": "array",
+            "description": "Where this server info was collected from",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["bilibili", "qq_group", "discord", "telegram", "forum", "github", "manual", "other"],
+                  "description": "Source type"
+                },
+                "id": { "type": ["string", "null"], "description": "Source ID / number / username" },
+                "url": { "type": ["string", "null"], "format": "uri", "description": "Direct URL to source" },
+                "note": { "type": ["string", "null"], "description": "Optional note about this source" }
+              },
+              "required": ["type"]
+            }
           },
-          "port": {
-            "type": "integer",
-            "description": "Server port",
-            "default": 25565,
-            "minimum": 1,
-            "maximum": 65535,
-            "examples": [25565, 12345, 19132]
+          "domain": {
+            "type": "object",
+            "description": "Domain information and DNS records",
+            "properties": {
+              "primary": { "type": "string", "description": "Main connection address (domain:port)", "examples": ["play.example.com:25565"] },
+              "hostname": { "type": "string", "description": "Domain hostname", "examples": ["play.example.com"] },
+              "port": { "type": "integer", "description": "Game port", "default": 25565, "minimum": 1, "maximum": 65535 },
+              "aliases": {
+                "type": "array",
+                "description": "Alternative known domain names pointing to the same server",
+                "items": { "type": "string" },
+                "default": []
+              },
+              "srv": { "type": "boolean", "description": "Has Minecraft SRV record", "default": false },
+              "srv_record": { "type": ["string", "null"], "description": "SRV target (hostname:port)", "default": null },
+              "cname": { "type": "boolean", "description": "Is a CNAME alias", "default": false },
+              "cname_target": { "type": ["string", "null"], "description": "CNAME points to", "default": null },
+              "registrar": { "type": ["string", "null"], "description": "Domain registrar if known", "default": null },
+              "creation_date": { "type": ["string", "null"], "description": "Domain creation date", "default": null }
+            },
+            "required": ["primary", "hostname", "port"]
           },
-          "source": {
-            "type": ["string", "null"],
-            "description": "Source of the server address (e.g. @username)",
-            "default": null,
-            "examples": ["@user123", "@user456"]
+          "network": {
+            "type": "object",
+            "description": "Network fingerprint",
+            "properties": {
+              "ipv4": {
+                "type": "array",
+                "description": "IPv4 addresses",
+                "items": { "type": "string" },
+                "default": []
+              },
+              "ipv6": {
+                "type": "array",
+                "description": "IPv6 addresses",
+                "items": { "type": "string" },
+                "default": []
+              },
+              "multi_ip": { "type": "boolean", "description": "Multiple IPs (GSLB / multi-line)", "default": false },
+              "reverse_proxy": { "type": "boolean", "description": "Behind reverse proxy (BungeeCord/Velocity/Waterfall)", "default": false },
+              "proxy_software": { "type": ["string", "null"], "description": "Detected proxy software", "default": null, "examples": ["Waterfall", "Velocity", "BungeeCord", "Gate"] },
+              "cdn": { "type": ["string", "null"], "description": "CDN provider if any", "default": null, "examples": ["Cloudflare", "CloudFront", "Akamai"] },
+              "hosting": { "type": ["string", "null"], "description": "Hosting provider / ASN", "default": null, "examples": ["iLayer", "Hetzner", "AWS", "CognetCloud"] },
+              "asn": { "type": ["string", "null"], "description": "ASN number", "default": null },
+              "server_software": { "type": ["string", "null"], "description": "Web server software detected", "default": null, "examples": ["nginx", "Apache", "Caddy"] },
+              "tunnel": { "type": ["string", "null"], "description": "内网穿透服务 (frp/ngrok/其他)", "default": null, "examples": ["frp", "ngrok", "Tailscale", "Cloudflare Tunnel"] },
+              "machine_type": { "type": ["string", "null"], "description": "机器类型: 物理机 / VPS / 云服务器 / 家用机", "default": null, "examples": ["物理机", "VPS", "云服务器", "家用机"] }
+            }
+          },
+          "ports": {
+            "type": "object",
+            "description": "Discovered open ports",
+            "properties": {
+              "game": { "type": "integer", "description": "Minecraft game port", "default": 25565 },
+              "extra": {
+                "type": "array",
+                "description": "Other open ports discovered",
+                "items": { "type": "integer" },
+                "default": []
+              }
+            }
           },
           "versions": {
-            "type": ["string", "null"],
-            "description": "Supported Minecraft version(s)",
-            "default": null,
-            "examples": ["1.21", "1.20.4", "1.21.1"]
+            "type": "object",
+            "description": "Minecraft version info",
+            "properties": {
+              "game": { "type": ["string", "null"], "description": "Minecraft version string", "default": null, "examples": ["1.21.4", "1.20.6"] },
+              "protocol": { "type": ["integer", "null"], "description": "Protocol version number", "default": null, "examples": [769, 775] },
+              "software": { "type": ["string", "null"], "description": "Server software", "default": null, "examples": ["Paper", "Purpur", "Spigot", "Vanilla"] }
+            }
           },
-          "group": {
-            "type": ["string", "null"],
-            "description": "QQ group or community number",
-            "default": null,
-            "examples": ["123456789", "987654321"]
+          "contacts": {
+            "type": "object",
+            "description": "Community / contact channels",
+            "properties": {
+              "qq_group": { "type": ["string", "null"], "description": "QQ group number", "default": null },
+              "telegram": { "type": ["string", "null"], "description": "Telegram group link", "default": null, "examples": ["t.me/example"] },
+              "discord": { "type": ["string", "null"], "description": "Discord invite", "default": null, "examples": ["discord.gg/abcdef"] },
+              "bilibili": { "type": ["string", "null"], "description": "B站 UID or space link", "default": null, "examples": ["https://space.bilibili.com/12345"] },
+              "website": { "type": ["string", "null"], "description": "Official website", "default": null, "format": "uri" }
+            }
           },
-          "note": {
-            "type": ["string", "null"],
-            "description": "Additional notes about the server (type, status, etc.)",
-            "default": null
-          }
+          "status": {
+            "type": "object",
+            "description": "Last known server status",
+            "properties": {
+              "online": { "type": "boolean", "description": "Whether the server was online at last check", "default": false },
+              "uptime": { "type": ["string", "null"], "description": "运行规律: 24h全天 / 定时开关 / 未知", "default": null, "examples": ["24h", "每天18-24点", "每天2小时", "未知"] },
+              "players_online": { "type": "integer", "description": "Players online at last check", "default": 0 },
+              "players_max": { "type": "integer", "description": "Max players", "default": 0 },
+              "motd": { "type": ["string", "null"], "description": "Last known MOTD", "default": null },
+              "last_check": { "type": ["string", "null"], "description": "ISO timestamp of last check", "default": null }
+            }
+          },
+          "auth": {
+            "type": "object",
+            "description": "Authentication mode",
+            "properties": {
+              "online_mode": { "type": "boolean", "description": "Requires Mojang authentication", "default": false },
+              "whitelist": { "type": "boolean", "description": "Has whitelist", "default": false },
+              "whitelist_note": { "type": ["string", "null"], "description": "Whitelist requirement details", "default": null }
+            }
+          },
+          "findings": {
+            "type": "array",
+            "description": "安全/社工发现 — 漏洞、配置缺陷、信息泄露等",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "description": "发现类型",
+                  "examples": ["auth_bypass", "ip_leak", "config_leak", "social_info", "other"],
+                  "default": "other"
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": ["critical", "high", "medium", "low", "info"],
+                  "description": "严重程度",
+                  "default": "info"
+                },
+                "title": { "type": "string", "description": "简短标题" },
+                "description": { "type": "string", "description": "详细描述" },
+                "implication": { "type": ["string", "null"], "description": "安全影响 / 可利用性", "default": null },
+                "discovered": { "type": ["string", "null"], "description": "发现日期 (ISO或自由格式)", "default": null, "examples": ["2026-06-28", "2026-06"] },
+                "status": {
+                  "type": "string",
+                  "description": "当前状态",
+                  "enum": ["unpatched", "patched", "confirmed", "investigating", "fixed_upstream"],
+                  "default": "unpatched"
+                },
+                "reference": { "type": ["string", "null"], "description": "参考链接 / 证据", "default": null }
+              },
+              "required": ["type", "title", "description"]
+            },
+            "default": []
+          },
+          "notes": { "type": ["string", "null"], "description": "Free-form notes", "default": null }
         },
-        "required": ["host", "port"],
+        "required": ["domain"],
         "additionalProperties": false
       },
       "minItems": 0

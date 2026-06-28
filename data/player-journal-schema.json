@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://lambdaattack.dev/data/player-journal-schema.json",
+  "title": "LambdaAttack Player Journal",
+  "description": "OSINT player tracking — discovered player names, roles, and observation history",
+  "type": "object",
+  "properties": {
+    "players": {
+      "type": "object",
+      "description": "Host:port → list of known players",
+      "patternProperties": {
+        "^.+:[0-9]+$": {
+          "type": "array",
+          "description": "Players observed on this server",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Minecraft in-game username"
+              },
+              "role": {
+                "type": "string",
+                "description": "身份标签: 服主 / 管理员 / 普通玩家 / 未知",
+                "default": "未知",
+                "examples": ["服主", "管理员", "普通玩家", "未知"]
+              },
+              "note": {
+                "type": "string",
+                "description": "自由备注: 发现上下文、行为特征等",
+                "default": ""
+              },
+              "first_seen": {
+                "type": "integer",
+                "description": "UNIX timestamp of first observation"
+              },
+              "last_seen": {
+                "type": "integer",
+                "description": "UNIX timestamp of most recent observation"
+              }
+            },
+            "required": ["name", "role", "first_seen", "last_seen"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["players"],
+  "additionalProperties": false
+}
