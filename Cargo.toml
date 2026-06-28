@@ -21,3 +21,5 @@ daemon-kit = "0.1"
 proxied = "1"
 gamedig = "0.6"
 reqwest = { version = "0.12", features = ["socks", "cookies"] }
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
