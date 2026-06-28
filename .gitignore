@@ -43,3 +43,7 @@ Thumbs.db
 # Reference projects — cloned repos, not committed
 reference/*
 !reference/README.md
+
+# Data files — server lists, runtime data (not committed)
+data/*
+!data/schema.json

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://lambdaattack.dev/data/servers-schema.json",
+  "title": "LambdaAttack Server List",
+  "description": "Target server list for LambdaAttack — stores server addresses, versions, and notes",
+  "type": "object",
+  "properties": {
+    "servers": {
+      "type": "array",
+      "description": "List of target servers",
+      "items": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "Server hostname or IP address",
+            "examples": ["example.com", "192.168.1.1"]
+          },
+          "port": {
+            "type": "integer",
+            "description": "Server port",
+            "default": 25565,
+            "minimum": 1,
+            "maximum": 65535,
+            "examples": [25565, 12345, 19132]
+          },
+          "source": {
+            "type": ["string", "null"],
+            "description": "Source of the server address (e.g. @username)",
+            "default": null,
+            "examples": ["@user123", "@user456"]
+          },
+          "versions": {
+            "type": ["string", "null"],
+            "description": "Supported Minecraft version(s)",
+            "default": null,
+            "examples": ["1.21", "1.20.4", "1.21.1"]
+          },
+          "group": {
+            "type": ["string", "null"],
+            "description": "QQ group or community number",
+            "default": null,
+            "examples": ["123456789", "987654321"]
+          },
+          "note": {
+            "type": ["string", "null"],
+            "description": "Additional notes about the server (type, status, etc.)",
+            "default": null
+          }
+        },
+        "required": ["host", "port"],
+        "additionalProperties": false
+      },
+      "minItems": 0
+    }
+  },
+  "required": ["servers"],
+  "additionalProperties": false
+}
