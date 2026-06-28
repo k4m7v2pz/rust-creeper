@@ -19,3 +19,4 @@ directories = "6"
 clap = { version = "4", features = ["derive"] }
 daemon-kit = "0.1"
 proxied = "1"
+gamedig = "0.6"
