@@ -10,6 +10,7 @@ mod config;
 mod entity_location;
 mod factory;
 mod logging;
+mod motd;
 mod options;
 mod protocol;
 mod service;
@@ -177,8 +178,20 @@ async fn main() -> anyhow::Result<()> {
             run_attack(cfg, proxies_vec, nicks_vec).await;
         }
 
-        Some(Commands::Info { host: _, port: _ }) => {
-            log::info!("Server info ping not yet implemented — see reference/mc-bots-ref for ServerInfo.java");
+        Some(Commands::Info { host, port }) => {
+            let host = host.unwrap_or_else(|| "127.0.0.1".to_string());
+            log::info!("Querying server info for {}:{} ...", host, port);
+
+            // Try Java first, fallback to Bedrock (UDP/RakNet)
+            let result = motd::ping(&host, port, -1, true);
+
+            if result.info.motd.is_empty() {
+                log::error!("Server unreachable on both Java (TCP) and Bedrock (UDP).");
+                eprintln!("Server is offline or unreachable.");
+                return Ok(());
+            }
+
+            motd::print_server_info(&result);
         }
 
         Some(Commands::Service { action }) => {
@@ -268,6 +281,20 @@ async fn run_attack(cfg: Config, proxies: Vec<protocol::ProxyInfo>, nicks: Vec<S
 
     log::info!("Starting LambdaAttack → {}:{} ({} bots, max_attempts={})",
         options.hostname, options.port, options.amount, options.max_attempts);
+
+    // Optionally ping the server before attacking
+    if cfg.server.ping_on_start {
+        log::info!("Pinging server {}:{} before attack ...", options.hostname, options.port);
+        match motd::ping_java(&options.hostname, options.port, options.game_version.protocol_version().unwrap_or(-1)) {
+            Ok(info) => {
+                log::info!("Server online — {} {} ({}/{})",
+                    info.game_version, info.motd, info.players_online, info.players_max);
+            }
+            Err(e) => {
+                log::warn!("Server ping failed: {e} — proceeding anyway");
+            }
+        }
+    }
 
     let mut attack = LambdaAttack::new();
     if !proxies.is_empty() { attack.set_proxies(proxies); }
