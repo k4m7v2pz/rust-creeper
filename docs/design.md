@@ -1,4 +1,4 @@
-# LambdaAttack 设计文档
+# Creeper 设计文档
 
 ## 项目定位
 
@@ -40,7 +40,7 @@ Forge 握手分为两套：
 
 ## 配置
 
-- 文件：`~/.config/lambdaattack/config.json`
+- 文件：`~/.config/creeper/config.json`
 - Schema: `config/schema.json`
 - 所有字段有默认值，CLI 参数可覆盖
 
@@ -75,7 +75,7 @@ Forge 握手分为两套：
 | macOS | launchd plist |
 | Windows | Windows Service (SCM) |
 
-安装后自动随系统启动，`lambdaattack service run` 为前台模式供服务管理器调用。
+安装后自动随系统启动，`creeper service run` 为前台模式供服务管理器调用。
 
 ## 反机器人绕过（待实现）
 
