@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://lambdaattack.dev/config/schema.json",
-  "title": "LambdaAttack Configuration",
-  "description": "Configuration schema for LambdaAttack Minecraft stress-test bot",
+  "$id": "https://creeper.dev/config/schema.json",
+  "title": "Creeper Configuration",
+  "description": "Configuration schema for Creeper Minecraft stress-test bot",
   "type": "object",
   "properties": {
     "target": {

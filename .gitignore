@@ -52,6 +52,10 @@ data/*
 # Temp files — scratch notes, command snippets
 temp/
 
+# Local docs with deployment-specific info (not for public repo)
+DEPLOY.md
+AGENTS.md
+
 # Scripts — browser automation, downloaded artifacts
 scripts/
 report.html

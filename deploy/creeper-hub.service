@@ -1,0 +1,25 @@
+[Unit]
+Description=Creeper Hub — MC player journal sync API
+Documentation=https://github.com/user/creeper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=creeper
+Group=creeper
+ExecStart=/opt/creeper/creeper serve --host 0.0.0.0 --port 9090 --target mc-hub
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/creeper/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

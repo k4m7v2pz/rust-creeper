@@ -1,4 +1,4 @@
-//! Terminal UI (TUI) dashboard for LambdaAttack.
+//! Terminal UI (TUI) dashboard for Creeper.
 //!
 //! Monitors server status, player journal growth, and flood stats
 //! in a live-updating terminal interface.
@@ -143,7 +143,7 @@ fn render_header(f: &mut Frame, area: Rect, app: &App) {
 
     // Title line
     let title = Line::from(Span::styled(
-        format!(" LambdaAttack v{} ", env!("CARGO_PKG_VERSION")),
+        format!(" Creeper v{} ", env!("CARGO_PKG_VERSION")),
         Style::default()
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
@@ -296,7 +296,7 @@ fn render_about_tab(f: &mut Frame, area: Rect, _app: &App) {
     f.render_widget(block, area);
 
     let lines = vec![
-        Line::from(Span::styled("LambdaAttack", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("Creeper", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
         Line::from(Span::raw("")),
         Line::from(Span::styled("Minecraft stress-test bot + HTTP flood tool", Style::default().fg(Color::White))),
         Line::from(Span::raw("")),
@@ -328,7 +328,7 @@ fn render_footer(f: &mut Frame, area: Rect) {
 // ---------------------------------------------------------------------------
 
 /// Run the TUI dashboard.
-pub async fn run_tui() -> Result<()> {
+pub async fn run_tui(remote: Option<&str>) -> Result<()> {
     let mut app = App::new();
 
     // Set up terminal
