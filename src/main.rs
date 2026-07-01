@@ -198,7 +198,7 @@ enum Commands {
     /// Query a Creeper Hub node for status and player journal.
     #[command(visible_alias = "hb")]
     Hub {
-        /// Hub URL (e.g. http://printer:9090)
+        /// Hub URL (e.g. http://localhost:9090)
         #[arg(short = 'H', long, default_value = "http://127.0.0.1:9090")]
         hub: String,
     },
