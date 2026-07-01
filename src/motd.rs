@@ -79,7 +79,7 @@ struct CacheEntry {
 
 /// Return the cache directory, creating it if needed.
 fn cache_dir() -> Result<PathBuf> {
-    let base = directories::ProjectDirs::from("", "", "lambdaattack")
+    let base = directories::ProjectDirs::from("", "", "creeper")
         .context("Cannot determine cache directory")?
         .cache_dir()
         .join("motd-cache");
@@ -387,7 +387,7 @@ impl Default for PlayerJournal {
 
 impl PlayerJournal {
     fn path() -> Result<PathBuf> {
-        let base = directories::ProjectDirs::from("", "", "lambdaattack")
+        let base = directories::ProjectDirs::from("", "", "creeper")
             .context("Cannot determine data directory")?
             .data_dir()
             .join("player-journal.json");
@@ -497,6 +497,37 @@ impl PlayerJournal {
         }
     }
 
+    /// Merge another journal into this one. Newer last_seen wins; unknown names are added.
+    pub fn merge(&mut self, other: &PlayerJournal) -> usize {
+        let mut added = 0usize;
+        for (key, entries) in &other.players {
+            let local = self.players.entry(key.clone()).or_default();
+            for remote_entry in entries {
+                if let Some(local_entry) = local.iter_mut().find(|e| e.name == remote_entry.name) {
+                    // Update last_seen if remote is newer
+                    if remote_entry.last_seen > local_entry.last_seen {
+                        local_entry.last_seen = remote_entry.last_seen;
+                    }
+                    // Keep the more informative role / note
+                    if local_entry.role == "未知" && remote_entry.role != "未知" {
+                        local_entry.role = remote_entry.role.clone();
+                    }
+                    if local_entry.note.is_empty() && !remote_entry.note.is_empty() {
+                        local_entry.note = remote_entry.note.clone();
+                    }
+                } else {
+                    // New player
+                    local.push(remote_entry.clone());
+                    added += 1;
+                }
+            }
+        }
+        if added > 0 {
+            log::info!("[journal] Merged {} new player(s) from remote", added);
+        }
+        added
+    }
+
     /// Update the role and note for a known player.
     pub fn annotate(&mut self, host: &str, port: u16, player: &str, role: &str, note: &str) {
         let key = format!("{}:{}", host, port);
@@ -574,6 +605,137 @@ pub async fn monitor(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Same as `monitor()` but pushes the journal to a sync hub after each ping.
+pub async fn monitor_sync(
+    host: &str,
+    port: u16,
+    protocol_version: i32,
+    interval: Duration,
+    sync_url: Option<&str>,
+) -> Result<()> {
+    let mut journal = PlayerJournal::load();
+    log::info!("Starting monitor for {}:{} (interval={}s)", host, port, interval.as_secs());
+
+    // If a sync hub is configured, pull remote journal first for a quick merge
+    if let Some(url) = sync_url {
+        if let Some(remote) = crate::sync::pull_from_hub(url).await {
+            journal.merge(&remote);
+            journal.save();
+        }
+    }
+
+    let mut ping_count = 0u64;
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Monitor interrupted by user");
+                journal.save();
+                // Final push to hub before exit
+                if let Some(url) = sync_url {
+                    crate::sync::push_to_hub(url, &journal).await;
+                }
+                journal.print_summary(host, port);
+                break;
+            }
+            _ = tokio::time::sleep(interval) => {
+                ping_count += 1;
+                let result = ping(host, port, protocol_version, false);
+                if !result.info.motd.is_empty() {
+                    journal.record(host, port, &result.info.players);
+                    journal.save();
+
+                    // Push to hub
+                    if let Some(url) = sync_url {
+                        crate::sync::push_to_hub(url, &journal).await;
+                    }
+
+                    log::info!(
+                        "[#{ping_count}] {}:{} — {} {}/{} {:?}",
+                        host, port,
+                        result.info.game_version,
+                        result.info.players_online,
+                        result.info.players_max,
+                        result.info.players,
+                    );
+                } else {
+                    log::warn!("[#{ping_count}] Server unreachable — will retry");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Multi-target monitor
+// ---------------------------------------------------------------------------
+
+/// A single monitoring target read from a JSON targets file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorTarget {
+    pub provider: String,
+    pub host: String,
+    pub port: u16,
+    /// Ping interval in seconds (default 60)
+    #[serde(default = "default_interval")]
+    pub interval_secs: u64,
+}
+
+fn default_interval() -> u64 { 60 }
+
+/// Top-level structure of the targets JSON file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TargetsFile {
+    targets: Vec<MonitorTarget>,
+}
+
+/// Monitor all targets from a JSON file, syncing to the given hub URL.
+/// Each target runs its own monitoring loop concurrently.
+pub async fn monitor_all(targets_path: &str, sync_url: Option<&str>) -> Result<()> {
+    let data = fs::read_to_string(targets_path)
+        .context(format!("Failed to read targets file: {}", targets_path))?;
+    let file: TargetsFile = serde_json::from_str(&data)
+        .context("Failed to parse targets file")?;
+
+    if file.targets.is_empty() {
+        anyhow::bail!("No targets found in {}", targets_path);
+    }
+
+    log::info!("Loaded {} monitoring targets from {}", file.targets.len(), targets_path);
+    for t in &file.targets {
+        log::info!("  {}:{} ({}) — every {}s",
+            t.host, t.port, t.provider, t.interval_secs);
+    }
+
+    let mut handles = Vec::new();
+    for target in file.targets {
+        let host = target.host.clone();
+        let port = target.port;
+        let interval = Duration::from_secs(target.interval_secs);
+        let url = sync_url.map(|s| s.to_string());
+
+        handles.push(tokio::spawn(async move {
+            log::info!("[monitor-all] starting {}:{}", host, port);
+            let url_deref = url.as_deref();
+            if let Err(e) = monitor_sync(&host, port, -1, interval, url_deref).await {
+                log::error!("[monitor-all] {}:{} failed: {e}", host, port);
+            }
+        }));
+    }
+
+    // Wait for Ctrl+C
+    tokio::signal::ctrl_c().await?;
+    log::info!("Shutting down all monitors...");
+
+    // Abort all tasks
+    for h in handles {
+        h.abort();
     }
 
     Ok(())

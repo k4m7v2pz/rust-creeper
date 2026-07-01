@@ -1,4 +1,4 @@
-# LambdaAttack 使用指南
+# Creeper 使用指南
 
 Minecraft 压力测试机器人。支持 SOCKS4/5、HTTP 代理，多版本协议（1.11 ~ 1.21.7），可用作 CLI 或系统服务。
 
@@ -50,24 +50,24 @@ cd rust-tokio-lambda-attack
 cargo build --release
 
 # 编译产物在
-#   target/release/lambdaattack
+#   target/release/creeper
 ```
 
 ### 验证编译
 
 ```bash
 # 查看帮助
-./target/release/lambdaattack --help
+./target/release/creeper --help
 
 # 查看版本
-./target/release/lambdaattack --version
+./target/release/creeper --version
 ```
 
 ### 开发模式编译（更快，但性能差）
 
 ```bash
 cargo build
-# 产物在 target/debug/lambdaattack
+# 产物在 target/debug/creeper
 ```
 
 ---
@@ -141,7 +141,7 @@ cargo run --release -- start \
 
 ## 配置文件
 
-配置文件位于 `~/.config/lambdaattack/config.json`，JSON 格式。
+配置文件位于 `~/.config/creeper/config.json`，JSON 格式。
 
 ### 生成默认配置
 
@@ -225,20 +225,20 @@ CLI 参数 > 配置文件 > 默认值。
 cargo build --release
 
 # 安装服务
-sudo ./target/release/lambdaattack service install
+sudo ./target/release/creeper service install
 
 # 启动
-sudo ./target/release/lambdaattack service start
+sudo ./target/release/creeper service start
 
 # 查看状态
-sudo ./target/release/lambdaattack service status
-# → ● lambdaattack.service — running (PID 12345)
+sudo ./target/release/creeper service status
+# → ● creeper.service — running (PID 12345)
 
 # 停止
-sudo ./target/release/lambdaattack service stop
+sudo ./target/release/creeper service stop
 
 # 卸载
-sudo ./target/release/lambdaattack service uninstall
+sudo ./target/release/creeper service uninstall
 ```
 
 ### macOS (launchd)
@@ -253,12 +253,12 @@ sudo ./target/release/lambdaattack service uninstall
 
 ## 完整命令参考
 
-### `lambdaattack start`
+### `creeper start`
 
 启动攻击。
 
 ```bash
-lambdaattack start \
+creeper start \
   -h mc.example.com \
   -p 25565 \
   -c 100 \
@@ -270,34 +270,34 @@ lambdaattack start \
   -N nicks.txt
 ```
 
-### `lambdaattack config`
+### `creeper config`
 
 配置管理。
 
 ```bash
-lambdaattack config --default    # 打印默认配置
-lambdaattack config --show       # 查看当前配置
-lambdaattack config --edit       # 编辑配置文件
+creeper config --default    # 打印默认配置
+creeper config --show       # 查看当前配置
+creeper config --edit       # 编辑配置文件
 ```
 
-### `lambdaattack service`
+### `creeper service`
 
 系统服务管理。
 
 ```bash
-lambdaattack service install     # 安装服务
-lambdaattack service uninstall   # 卸载服务
-lambdaattack service start       # 启动守护进程
-lambdaattack service stop        # 停止
-lambdaattack service status      # 查看状态
+creeper service install     # 安装服务
+creeper service uninstall   # 卸载服务
+creeper service start       # 启动守护进程
+creeper service stop        # 停止
+creeper service status      # 查看状态
 ```
 
-### `lambdaattack info`
+### `creeper info`
 
 服务器信息（待实现）。
 
 ```bash
-lambdaattack info mc.example.com
+creeper info mc.example.com
 ```
 
 ---
@@ -368,8 +368,8 @@ rustup update stable
 
 **Q: 服务装好了怎么改配置？**
 
-编辑 `~/.config/lambdaattack/config.json`，然后重启服务：
+编辑 `~/.config/creeper/config.json`，然后重启服务：
 
 ```bash
-lambdaattack service restart     # 暂不支持，请先 stop 再 start
+creeper service restart     # 暂不支持，请先 stop 再 start
 ```

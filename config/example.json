@@ -11,8 +11,8 @@
     "name_format": "Bot-%d",
     "auto_register": true,
     "join_commands": [
-      "register LambdaAttack LambdaAttack",
-      "login LambdaAttack"
+      "register Creeper Creeper",
+      "login Creeper"
     ],
     "auto_respawn_delay_ms": 3000,
     "max_attempts": 3
@@ -23,13 +23,13 @@
       "socks4://10.0.0.1:4145",
       "http://user:pass@proxy.example.com:8080"
     ],
-    "file": "/etc/lambdaattack/proxies.txt",
+    "file": "/etc/creeper/proxies.txt",
     "url": "https://example.com/proxies.txt",
     "verify": true
   },
   "nickname": {
     "realistic": true,
-    "file": "/etc/lambdaattack/nicks.txt",
+    "file": "/etc/creeper/nicks.txt",
     "length": 12,
     "prefix": "LA_"
   },

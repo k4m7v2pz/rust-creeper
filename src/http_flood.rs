@@ -222,7 +222,7 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
                 for (k, v) in headers.iter() {
                     req = req.header(k.as_str(), v.as_str());
                 }
-                req = req.header("User-Agent", format!("LambdaAttack/{}", env!("CARGO_PKG_VERSION")));
+                req = req.header("User-Agent", format!("Creeper/{}", env!("CARGO_PKG_VERSION")));
 
                 // Apply body with template substitution
                 if let Some(ref tmpl) = body_template {

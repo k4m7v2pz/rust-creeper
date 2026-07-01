@@ -1,9 +1,9 @@
 [package]
-name = "lambdaattack"
+name = "creeper"
 version = "2.4.0"
 edition = "2021"
 license = "Unlicense"
-description = "LambdaAttack — Minecraft stress-test bot"
+description = "Creeper — Minecraft recon, monitor & attack tool"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -20,6 +20,10 @@ clap = { version = "4", features = ["derive"] }
 daemon-kit = "0.1"
 proxied = "1"
 gamedig = "0.6"
-reqwest = { version = "0.12", features = ["socks", "cookies"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "socks", "cookies", "json"] }
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
+axum = "0.7"
+tower = "0.5"
+tokio-util = { version = "0.7", features = ["rt"] }
+sysinfo = "0.33"

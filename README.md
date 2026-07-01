@@ -99,9 +99,9 @@ cargo run --release -- http https://example.com -c 100
 cargo build --release
 
 # 安装到系统路径
-cp target/release/lambdaattack /usr/local/bin/creeper   # macOS / Linux
+cp target/release/creeper /usr/local/bin/creeper   # macOS / Linux
 # 或保留原名
-cp target/release/lambdaattack /usr/local/bin/lambdaattack
+cp target/release/creeper /usr/local/bin/creeper
 
 # 注册系统服务（自启动）
 creeper service install
@@ -113,7 +113,7 @@ creeper service status
 
 ## ⚙️ 配置
 
-配置文件位于 `$XDG_CONFIG_HOME/lambdaattack/config.json`（macOS: `~/Library/Application Support/lambdaattack/config.json`）。
+配置文件位于 `$XDG_CONFIG_HOME/creeper/config.json`（macOS: `~/Library/Application Support/creeper/config.json`）。
 
 ```bash
 # 打印当前配置

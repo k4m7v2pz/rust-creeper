@@ -1,0 +1,26 @@
+[Unit]
+Description=Creeper Monitor — Multi-target MC server reconnaissance
+Documentation=https://github.com/user/creeper
+After=network-online.target creeper-hub.service
+Wants=network-online.target creeper-hub.service
+
+[Service]
+Type=simple
+User=creeper
+Group=creeper
+WorkingDirectory=/opt/creeper
+ExecStart=/opt/creeper/creeper monitor --targets /opt/creeper/data/mc-targets.json --sync http://127.0.0.1:9090
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/creeper/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
-/// Main configuration — saved as JSON in `$XDG_CONFIG_HOME/lambdaattack/config.json`.
+/// Main configuration — saved as JSON in `$XDG_CONFIG_HOME/creeper/config.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
@@ -131,7 +131,7 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> anyhow::Result<PathBuf> {
-        let dir = directories::ProjectDirs::from("", "", "lambdaattack")
+        let dir = directories::ProjectDirs::from("", "", "creeper")
             .ok_or_else(|| anyhow::anyhow!("Cannot determine config directory"))?;
         Ok(dir.config_dir().join("config.json"))
     }

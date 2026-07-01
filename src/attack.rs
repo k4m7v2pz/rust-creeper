@@ -4,13 +4,13 @@ use crate::options::Options;
 use crate::protocol::ProxyInfo;
 
 /// Attack orchestrator — spawns bots with configurable delay, proxy rotation.
-pub struct LambdaAttack {
+pub struct Creeper {
     proxies: Vec<ProxyInfo>,
     names: Vec<String>,
     bots: Vec<BotHandle>,
 }
 
-impl LambdaAttack {
+impl Creeper {
     pub fn new() -> Self { Self { proxies: vec![], names: vec![], bots: vec![] } }
     pub fn set_proxies(&mut self, proxies: Vec<ProxyInfo>) { self.proxies = proxies; }
     pub fn set_names(&mut self, names: Vec<String>) { self.names = names; }
@@ -53,7 +53,7 @@ impl LambdaAttack {
     }
 }
 
-impl Default for LambdaAttack { fn default() -> Self { Self::new() } }
+impl Default for Creeper { fn default() -> Self { Self::new() } }
 
 #[cfg(test)]
 mod tests {
@@ -62,7 +62,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_start_stop() {
-        let mut attack = LambdaAttack::new();
+        let mut attack = Creeper::new();
         let opts = Options {
             hostname: "127.0.0.1".into(), port: 25565, amount: 3, join_delay_ms: 10,
             bot_name_format: "Bot-%d".into(), game_version: GameVersion::V1_21_1,

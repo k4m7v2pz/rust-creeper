@@ -1,4 +1,4 @@
-# LambdaAttack — 项目状态
+# Creeper — 项目状态
 
 ## ✅ 已完成
 
@@ -6,7 +6,7 @@
 
 - [x] Rust Tokio 项目结构（单 crate，`src/` 拍平）
 - [x] CLI 入口（clap 子命令：`start` / `config` / `service` / `info`）
-- [x] JSON 配置管理（`~/.config/lambdaattack/config.json`）
+- [x] JSON 配置管理（`~/.config/creeper/config.json`）
 - [x] JSON Schema + 默认/示例配置（`config/`）
 - [x] 文档（`docs/design.md` 架构说明 + `docs/usage.md` 使用指南）
 - [x] 跨平台系统服务（daemon-kit: systemd / launchd / Windows Service）
@@ -21,7 +21,7 @@
 
 ### 核心逻辑
 
-- [x] `LambdaAttack` 编排器（Bot 创建 + 延迟加入）
+- [x] `Creeper` 编排器（Bot 创建 + 延迟加入）
 - [x] `Bot` + `BotHandle`（tokio::spawn + mpsc channel）
 - [x] 重试机制（`max_attempts`，被踢自动重连）
 - [x] SOCKS4 / SOCKS5 / HTTP 代理支持（`proxied` crate）
@@ -44,7 +44,7 @@
 
 - [ ] **TCP 连接** — `session.connect()` 目前只打日志，未真正对接 MC 协议
 - [ ] **客户端握手** — LoginStart → Encryption → LoginPlugin → JoinGame
-- [ ] **ServerListPing** — `lambdaattack info` 命令还是空的，参考 `reference/mc-bots-ref/ServerInfo.java`
+- [ ] **ServerListPing** — `creeper info` 命令还是空的，参考 `reference/mc-bots-ref/ServerInfo.java`
 - [ ] **数据包交互** — 至少实现位置同步、聊天收发、踢出处理
 - [ ] **KeepAlive** — 保活包自动回复
 
