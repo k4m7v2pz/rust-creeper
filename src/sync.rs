@@ -281,11 +281,16 @@ pub async fn pull_from_hub(hub_url: &str) -> Option<PlayerJournal> {
 
 /// Query a Hub and print a human-readable node status summary.
 pub async fn print_node_status(hub_url: &str) {
-    let base = hub_url.trim_end_matches('/');
+    // Auto-prepend http:// if no scheme present
+    let base = if hub_url.contains("://") {
+        hub_url.trim_end_matches('/').to_string()
+    } else {
+        format!("http://{}", hub_url.trim_end_matches('/'))
+    };
 
     // Fetch status
     print!("Connecting to {base} ... ");
-    let status = pull_status(base).await;
+    let status = pull_status(&base).await;
     match status {
         Some(ref s) => println!("{} (v{})", s["status"].as_str().unwrap_or("?"), s["version"].as_str().unwrap_or("?")),
         None => { println!("❌ unreachable"); return; }
@@ -296,7 +301,7 @@ pub async fn print_node_status(hub_url: &str) {
     let total_players = status["total_players"].as_u64().unwrap_or(0);
 
     // Fetch journal for per-server breakdown
-    let journal = pull_from_hub(base).await;
+    let journal = pull_from_hub(&base).await;
 
     println!();
     println!("┌─ Node: {base} ──────────────────────────────");
