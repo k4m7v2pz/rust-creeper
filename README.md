@@ -20,7 +20,7 @@
 | 玩家日志 | 自动将查询到的玩家昵称、时间戳记录到本地 JSON 日志，供离线分析 |
 
 ```bash
-creeper info mc.hypixel.net
+creeper info mc.example.com
 creeper check example.com
 ```
 
@@ -35,8 +35,8 @@ creeper check example.com
 | 玩家日志 | 每次扫描的玩家昵称自动存入 journal 文件，可积累长期数据 |
 
 ```bash
-creeper monitor mc.hypixel.net -t 30      # 每 30 秒扫描一次
-creeper tui mc.hypixel.net                 # 打开 TUI 仪表盘
+creeper monitor mc.example.com -t 30      # 每 30 秒扫描一次
+creeper tui mc.example.com                 # 打开 TUI 仪表盘
 ```
 
 ## 💥 爆炸 — Attack / Stress-Test
@@ -79,10 +79,10 @@ cargo run --release -- --help
 cargo run --release -- start -h 127.0.0.1 -c 50
 
 # 查询服务器信息
-cargo run --release -- info mc.hypixel.net
+cargo run --release -- info mc.example.com
 
 # 启动 TUI 仪表盘
-cargo run --release -- tui mc.hypixel.net
+cargo run --release -- tui mc.example.com
 
 # HTTP 洪水攻击
 cargo run --release -- http https://example.com -c 100
