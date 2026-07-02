@@ -16,6 +16,18 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub api: ApiConfig,
+    /// Hub (central node) settings — used by `status`, `hub`, `journal`, `tui`, `monitor` commands.
+    #[serde(default)]
+    pub hub: HubConfig,
+}
+
+/// Creeper Hub (central sync node) configuration.
+/// Stored in config so commands like `creeper status` work without re-typing the URL each time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HubConfig {
+    /// Hub URL, e.g. `http://192.168.1.2:9090`. Empty = fall back to `http://127.0.0.1:9090`.
+    #[serde(default)]
+    pub url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,10 +134,12 @@ impl Default for ProxyConfig { fn default() -> Self { Self { list: vec![], file:
 impl Default for NicknameConfig { fn default() -> Self { Self { realistic: false, file: None, length: default_nick_len(), prefix: String::new() } } }
 impl Default for ServerConfig { fn default() -> Self { Self { ping_on_start: default_true() } } }
 impl Default for ApiConfig { fn default() -> Self { Self { enabled: false, bind: default_api_bind(), port: default_api_port() } } }
+impl Default for HubConfig { fn default() -> Self { Self { url: String::new() } } }
 impl Default for Config {
     fn default() -> Self {
         Self { target: Default::default(), bot: Default::default(), proxy: Default::default(),
-               nickname: Default::default(), server: Default::default(), api: Default::default() }
+               nickname: Default::default(), server: Default::default(), api: Default::default(),
+               hub: Default::default() }
     }
 }
 
@@ -164,6 +178,26 @@ impl Config {
         if let Some(v) = name_format { self.bot.name_format = v; }
         if let Some(v) = version { self.target.version = v; }
         if let Some(v) = auto_register { self.bot.auto_register = v; }
+    }
+
+    /// Resolve the hub URL with precedence: CLI override > config file > built-in default.
+    /// `cli_url` is whatever the user passed on the command line (positional or `--hub`).
+    /// Auto-prepends `http://` if no scheme is present, and strips trailing slashes.
+    pub fn resolve_hub_url(&self, cli_url: Option<&str>) -> String {
+        const DEFAULT_HUB: &str = "http://127.0.0.1:9090";
+        let raw = cli_url
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| {
+                let cfg = self.hub.url.trim();
+                if cfg.is_empty() { None } else { Some(cfg) }
+            })
+            .unwrap_or(DEFAULT_HUB);
+        let with_scheme = if raw.contains("://") {
+            raw.to_string()
+        } else {
+            format!("http://{}", raw)
+        };
+        with_scheme.trim_end_matches('/').to_string()
     }
 }
 

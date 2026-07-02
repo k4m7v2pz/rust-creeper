@@ -75,20 +75,23 @@ enum Commands {
         nicks: Option<String>,
     },
 
-    /// Print or generate default config
+    /// Print or generate default config, or set values like the hub URL.
     #[command(visible_alias = "c")]
     Config {
-        /// Print current config
+        /// Print current config (shorthand for `creeper config show`)
         #[arg(long)]
         show: bool,
 
-        /// Print default config template
+        /// Print default config template (shorthand for `creeper config default`)
         #[arg(long)]
         default: bool,
 
-        /// Open config file in $EDITOR
+        /// Open config file in $EDITOR (shorthand for `creeper config edit`)
         #[arg(long)]
         edit: bool,
+
+        #[command(subcommand)]
+        action: Option<ConfigAction>,
     },
 
     /// Print server info (MOTD, players, version)
@@ -117,9 +120,10 @@ enum Commands {
         #[arg(short = 't', long, default_value_t = 60)]
         interval: u64,
 
-        /// Hub URL to sync journal to (e.g. http://printer:9090)
+        /// Hub URL to sync journal to (e.g. http://printer:9090).
+        /// Falls back to `hub.url` in config, then http://127.0.0.1:9090.
         #[arg(long)]
-        sync: Option<String>,
+        hub: Option<String>,
 
         /// Path to targets JSON file for multi-target monitoring
         #[arg(long)]
@@ -198,9 +202,13 @@ enum Commands {
     /// Query a Creeper Hub node for status and player journal.
     #[command(visible_alias = "hb")]
     Hub {
-        /// Hub URL (e.g. http://localhost:9090)
-        #[arg(short = 'H', long, default_value = "http://127.0.0.1:9090")]
-        hub: String,
+        /// Hub URL (e.g. http://localhost:9090). Optional: falls back to `hub.url` in config,
+        /// then http://127.0.0.1:9090. Auto-prepends `http://` if no scheme.
+        url: Option<String>,
+
+        /// Override the hub URL (same as the positional argument).
+        #[arg(long)]
+        hub: Option<String>,
     },
 
     /// Terminal UI dashboard (monitor + flood control)
@@ -213,9 +221,10 @@ enum Commands {
         #[arg(short, long, default_value_t = 25565)]
         port: u16,
 
-        /// Hub URL to pull journal from (e.g. http://printer:9090)
+        /// Hub URL to pull journal from (e.g. http://printer:9090).
+        /// Falls back to `hub.url` in config, then http://127.0.0.1:9090.
         #[arg(long)]
-        remote: Option<String>,
+        hub: Option<String>,
     },
 
     /// Manage system service (install/start/stop/status)
@@ -226,7 +235,7 @@ enum Commands {
     },
 
     /// Start sync hub — serve journal API for other nodes
-    #[command(visible_alias = "hub")]
+    #[command(visible_alias = "srv")]
     Serve {
         /// Listen host
         #[arg(long, default_value = "0.0.0.0")]
@@ -251,16 +260,29 @@ enum Commands {
         #[arg(short, long, default_value_t = 25565)]
         port: u16,
 
-        /// Hub URL to pull from (e.g. http://printer:9090)
+        /// Hub URL to pull from (e.g. http://printer:9090).
+        /// Falls back to `hub.url` in config, then http://127.0.0.1:9090.
         #[arg(long)]
-        remote: Option<String>,
+        hub: Option<String>,
     },
 
-    /// Show hub status
+    /// Show hub status. With --scope, fetch richer data from the hub.
+    ///   `creeper status`                  → node meta only (health, uptime, target, total players)
+    ///   `creeper status --scope players`  → full player journal (per-server player names + roles)
+    ///   `creeper status --scope servers`  → per-server overview (server → player count + names)
+    ///   `creeper status --scope all`      → merged JSON: node meta + servers + players
     Status {
-        /// Hub URL (e.g. http://printer:9090)
-        #[arg(long, default_value = "http://localhost:9090")]
-        remote: String,
+        /// Hub URL (e.g. http://printer:9090). Optional: falls back to `hub.url` in config,
+        /// then http://127.0.0.1:9090. Auto-prepends `http://` if no scheme.
+        url: Option<String>,
+
+        /// What to fetch: `players`, `servers`, `all`. Omit for node meta only.
+        #[arg(short = 's', long)]
+        scope: Option<StatusScope>,
+
+        /// Override the hub URL (same as the positional `url`).
+        #[arg(long)]
+        hub: Option<String>,
     },
 
     /// Annotate a player (set role/note)
@@ -333,13 +355,103 @@ enum ServiceAction {
     Run,
 }
 
+/// Subcommands of `creeper config`.
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Print current config to stdout
+    Show,
+    /// Print the default config template
+    Default,
+    /// Open the config file in $EDITOR / $VISUAL
+    Edit,
+    /// Set the hub (central node) URL stored in config, so commands like
+    /// `creeper status` / `hub` / `journal` use it without re-typing.
+    /// Example: `creeper config set-hub http://<your-hub-ip>:9090`
+    #[command(visible_alias = "sh")]
+    SetHub {
+        /// Hub URL, e.g. `http://<your-hub-ip>:9090` or just `<your-hub-ip>:9090`
+        /// (http:// is auto-prepended if no scheme).
+        url: String,
+    },
+}
+
+/// Scope argument for `creeper status` — controls which hub endpoint(s) to fetch.
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum StatusScope {
+    /// Full player journal: per-server player names + roles + notes + timestamps
+    Players,
+    /// Per-server overview: server → player count + name list
+    Servers,
+    /// Merged JSON: node meta (from /status) + servers + players (from /journal)
+    All,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     logging::init();
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Config { show, default: print_def, edit }) => {
+        Some(Commands::Config { show, default: print_def, edit, action }) => {
+            // Subcommand path (creeper config show / edit / default / set-hub)
+            if let Some(act) = action {
+                match act {
+                    ConfigAction::Show => {
+                        let path = cli.config.clone().unwrap_or_else(|| Config::path().unwrap_or_default());
+                        let cfg = Config::load_from(Some(&path)).unwrap_or_default();
+                        println!("{}", serde_json::to_string_pretty(&cfg).unwrap());
+                        return Ok(());
+                    }
+                    ConfigAction::Default => {
+                        config::print_default();
+                        return Ok(());
+                    }
+                    ConfigAction::Edit => {
+                        let path = cli.config.clone().unwrap_or_else(|| Config::path().unwrap_or_default());
+                        let p = if path.exists() { path } else {
+                            let cfg = Config::default();
+                            cfg.save_to(&path)?;
+                            path
+                        };
+                        let editor = std::env::var("EDITOR")
+                            .or_else(|_| std::env::var("VISUAL"))
+                            .unwrap_or_else(|_| "vim".into());
+                        let status = std::process::Command::new(&editor).arg(&p).status()?;
+                        if !status.success() {
+                            anyhow::bail!("Editor exited with error");
+                        }
+                        let cfg = Config::load_from(Some(&p))?;
+                        cfg.save_to(&p)?;
+                        log::info!("Config saved to {}", p.display());
+                        return Ok(());
+                    }
+                    ConfigAction::SetHub { url } => {
+                        let path = cli.config.clone().unwrap_or_else(|| Config::path().unwrap_or_default());
+                        // Normalize URL: auto-prepend http:// if no scheme, trim trailing /
+                        let normalized = if url.contains("://") {
+                            url.trim_end_matches('/').to_string()
+                        } else {
+                            format!("http://{}", url.trim_end_matches('/'))
+                        };
+                        // Load existing config (or default), update hub.url, save
+                        let mut cfg = if path.exists() {
+                            Config::load_from(Some(&path)).unwrap_or_default()
+                        } else {
+                            Config::default()
+                        };
+                        cfg.hub.url = normalized.clone();
+                        cfg.save_to(&path)?;
+                        println!("✓ Hub URL set to {}", normalized);
+                        println!("  Saved to {}", path.display());
+                        println!();
+                        println!("  Now `creeper status`, `creeper hub`, `creeper journal`, `creeper tui`");
+                        println!("  will automatically use this hub. No need to pass --hub each time.");
+                        return Ok(());
+                    }
+                }
+            }
+
+            // Legacy flag path (creeper config --show / --default / --edit)
             if print_def {
                 config::print_default();
                 return Ok(());
@@ -431,7 +543,11 @@ async fn main() -> anyhow::Result<()> {
             motd::print_server_info(&result);
         }
 
-        Some(Commands::Monitor { host, port, interval, sync: sync_url, targets }) => {
+        Some(Commands::Monitor { host, port, interval, hub: hub_cli, targets }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref());
+            let sync_url = Some(hub_url);
+
             // Multi-target mode: --targets <file>
             if let Some(ref targets_path) = targets {
                 log::info!("Multi-target monitor mode: {}", targets_path);
@@ -497,8 +613,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::Hub { hub }) => {
-            sync::print_node_status(&hub).await;
+        Some(Commands::Hub { url, hub }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(url.as_deref().or(hub.as_deref()));
+            sync::print_node_status(&hub_url).await;
         }
 
         Some(Commands::Check { domain }) => {
@@ -595,10 +713,13 @@ async fn main() -> anyhow::Result<()> {
             sync::run_hub(&host, port, &target).await?;
         }
 
-        Some(Commands::Journal { host, port, remote }) => {
-            if let Some(ref hub_url) = remote {
+        Some(Commands::Journal { host, port, hub: hub_cli }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref());
+
+            if hub_cli.is_some() || !cfg.hub.url.is_empty() {
                 // Pull journal from hub — show all servers
-                if let Some(j) = sync::pull_from_hub(hub_url).await {
+                if let Some(j) = sync::pull_from_hub(&hub_url).await {
                     if j.players.is_empty() {
                         println!("(empty journal)");
                     } else {
@@ -627,11 +748,85 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::Status { remote }) => {
-            if let Some(status) = sync::pull_status(&remote).await {
-                println!("{}", serde_json::to_string_pretty(&status).unwrap_or_default());
-            } else {
-                eprintln!("Failed to pull status from {}", remote);
+        Some(Commands::Status { url, hub, scope }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(url.as_deref().or(hub.as_deref()));
+
+            match scope {
+                // `creeper status` (no scope) → node meta only (back-compat)
+                None => {
+                    if let Some(status) = sync::pull_status(&hub_url).await {
+                        println!("{}", serde_json::to_string_pretty(&status).unwrap_or_default());
+                    } else {
+                        eprintln!("Failed to pull status from {}", hub_url);
+                    }
+                }
+                // `creeper status players` → full player journal
+                Some(StatusScope::Players) => {
+                    if let Some(j) = sync::pull_from_hub(&hub_url).await {
+                        println!("{}", serde_json::to_string_pretty(&j).unwrap_or_default());
+                    } else {
+                        eprintln!("Failed to pull journal from {}", hub_url);
+                    }
+                }
+                // `creeper status servers` → per-server overview
+                Some(StatusScope::Servers) => {
+                    if let Some(j) = sync::pull_from_hub(&hub_url).await {
+                        let servers: Vec<serde_json::Value> = j.players.iter()
+                            .map(|(srv, entries)| {
+                                let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+                                serde_json::json!({
+                                    "server": srv,
+                                    "player_count": entries.len(),
+                                    "players": names,
+                                })
+                            })
+                            .collect();
+                        let overview = serde_json::json!({
+                            "hub": hub_url,
+                            "server_count": servers.len(),
+                            "total_players": j.players.values().map(|v| v.len()).sum::<usize>(),
+                            "servers": servers,
+                        });
+                        println!("{}", serde_json::to_string_pretty(&overview).unwrap_or_default());
+                    } else {
+                        eprintln!("Failed to pull journal from {}", hub_url);
+                    }
+                }
+                // `creeper status all` → merged: node meta + servers + players
+                Some(StatusScope::All) => {
+                    let status = sync::pull_status(&hub_url).await;
+                    let journal = sync::pull_from_hub(&hub_url).await;
+                    if status.is_none() && journal.is_none() {
+                        eprintln!("Failed to reach hub {}", hub_url);
+                        return Ok(());
+                    }
+                    let mut merged = serde_json::Map::new();
+                    if let Some(s) = status {
+                        if let Some(obj) = s.as_object() {
+                            for (k, v) in obj { merged.insert(k.clone(), v.clone()); }
+                        }
+                    }
+                    if let Some(j) = journal {
+                        // Per-server overview
+                        let servers: Vec<serde_json::Value> = j.players.iter()
+                            .map(|(srv, entries)| {
+                                let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+                                serde_json::json!({
+                                    "server": srv,
+                                    "player_count": entries.len(),
+                                    "players": names,
+                                })
+                            })
+                            .collect();
+                        merged.insert("servers".into(), serde_json::json!(servers));
+                        merged.insert("server_count".into(), serde_json::json!(servers.len()));
+                        // Full journal too
+                        merged.insert("journal".into(), serde_json::json!(j));
+                    }
+                    merged.insert("hub".into(), serde_json::json!(hub_url));
+                    println!("{}", serde_json::to_string_pretty(&merged).unwrap_or_default());
+                }
             }
         }
 
@@ -643,8 +838,10 @@ async fn main() -> anyhow::Result<()> {
             journal.print_summary(&host, port);
         }
 
-        Some(Commands::Tui { host: _, port: _, remote }) => {
-            tui::run_tui(remote.as_deref()).await?;
+        Some(Commands::Tui { host: _, port: _, hub: hub_cli }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref());
+            tui::run_tui(Some(&hub_url)).await?;
         }
 
         Some(Commands::Service { action }) => {
