@@ -1,0 +1,25 @@
+[Unit]
+Description=Creeper MC Server Crawler (slow exploration)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=creeper
+Group=creeper
+WorkingDirectory=/opt/creeper
+Environment=RUST_LOG=info
+ExecStart=/opt/creeper/creeper crawl --targets /opt/creeper/data/mc-targets.json --round-delay 600 --port-delay-ms 3000
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/creeper/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

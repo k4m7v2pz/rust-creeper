@@ -9,12 +9,13 @@
 //!   Periodically push / pull journal to/from a Hub.
 
 use crate::motd::PlayerJournal;
+use crate::tasks::{self, Task, TaskQueue, TaskResult, TaskStatus, TaskType};
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, header},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use serde::Serialize;
 use std::net::SocketAddr;
@@ -40,8 +41,8 @@ impl<T: Serialize> IntoResponse for Utf8Json<T> {
 pub struct HubState {
     pub journal: Mutex<PlayerJournal>,
     pub started_at: Instant,
-    /// Host:port being monitored (if any)
     pub target: String,
+    pub task_queue: Mutex<TaskQueue>,
 }
 
 // -------------------- API handlers --------------------
@@ -74,12 +75,142 @@ async fn get_status(State(state): State<Arc<HubState>>) -> Utf8Json<serde_json::
         .values()
         .map(|v| v.len())
         .sum::<usize>();
+    let pending_tasks = state.task_queue.lock().unwrap().pending_count();
     Utf8Json(serde_json::json!({
         "status": "ok",
         "uptime_secs": uptime,
         "target": state.target,
         "total_players": player_count,
+        "pending_tasks": pending_tasks,
         "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
+async fn post_task(
+    State(state): State<Arc<HubState>>,
+    Json(req): Json<serde_json::Value>,
+) -> Utf8Json<serde_json::Value> {
+    let domains: Vec<String> = req.get("domains")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    
+    let ports: Vec<u16> = req.get("ports")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64().map(|u| u as u16)).collect())
+        .unwrap_or_default();
+    
+    let concurrency = req.get("concurrency")
+        .and_then(|v| v.as_u64())
+        .map(|u| u as usize)
+        .unwrap_or(5);
+
+    if domains.is_empty() {
+        return Utf8Json(serde_json::json!({
+            "error": "domains is required",
+            "success": false
+        }));
+    }
+
+    let task = Task::new(TaskType::Discover, tasks::ScanParams {
+        domains,
+        ports,
+        concurrency,
+    });
+
+    state.task_queue.lock().unwrap().enqueue(task.clone());
+    
+    Utf8Json(serde_json::json!({
+        "success": true,
+        "task_id": task.id,
+        "status": "pending",
+        "domains": task.params.domains.len(),
+        "ports": task.params.ports.len()
+    }))
+}
+
+async fn get_tasks(State(state): State<Arc<HubState>>) -> Utf8Json<Vec<Task>> {
+    let tasks = state.task_queue.lock().unwrap().list();
+    Utf8Json(tasks)
+}
+
+async fn get_task(
+    State(state): State<Arc<HubState>>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match state.task_queue.lock().unwrap().get(&task_id) {
+        Some(task) => Utf8Json(task.clone()).into_response(),
+        None => axum::http::StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn get_task_dequeue(
+    State(state): State<Arc<HubState>>,
+    axum::extract::Query(params): axum::extract::Query<serde_json::Value>,
+) -> Utf8Json<serde_json::Value> {
+    let worker_id = params.get("worker_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    
+    match state.task_queue.lock().unwrap().dequeue(worker_id) {
+        Some(task) => Utf8Json(serde_json::json!({
+            "success": true,
+            "task": task
+        })),
+        None => Utf8Json(serde_json::json!({
+            "success": false,
+            "message": "no pending tasks"
+        })),
+    }
+}
+
+async fn put_task_result(
+    State(state): State<Arc<HubState>>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> Utf8Json<serde_json::Value> {
+    let mut queue = state.task_queue.lock().unwrap();
+    let mut task = match queue.get(&task_id).cloned() {
+        Some(t) => t,
+        None => return Utf8Json(serde_json::json!({
+            "success": false,
+            "error": "task not found"
+        })),
+    };
+
+    let found_servers = req.get("found_servers")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    
+    let discovered = req.get("discovered")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|item| {
+            let host = item.get("host").and_then(|h| h.as_str())?;
+            let port = item.get("port").and_then(|p| p.as_u64())?;
+            Some((host.to_string(), port as u16))
+        }).collect())
+        .unwrap_or_default();
+
+    let error_str = req.get("error").and_then(|v| v.as_str()).map(String::from);
+
+    if let Some(ref e) = error_str {
+        task.fail(e);
+    } else {
+        task.complete(TaskResult {
+            found_servers,
+            discovered,
+            error: None,
+        });
+    }
+
+    let task_id = task.id.clone();
+    let task_status = format!("{:?}", task.status);
+    queue.update(task);
+    
+    Utf8Json(serde_json::json!({
+        "success": true,
+        "task_id": task_id,
+        "status": task_status
     }))
 }
 
@@ -194,6 +325,7 @@ pub async fn run_hub(host: &str, port: u16, target: &str) -> anyhow::Result<()> 
         journal: Mutex::new(PlayerJournal::load()),
         started_at: Instant::now(),
         target: target.to_string(),
+        task_queue: Mutex::new(TaskQueue::new(tasks::default_queue_path())),
     });
 
     let app = Router::new()
@@ -201,14 +333,22 @@ pub async fn run_hub(host: &str, port: u16, target: &str) -> anyhow::Result<()> 
         .route("/journal", get(get_journal))
         .route("/merge", post(post_merge))
         .route("/status", get(get_status))
+        .route("/tasks", get(get_tasks))
+        .route("/tasks", post(post_task))
+        .route("/tasks/dequeue", get(get_task_dequeue))
+        .route("/tasks/:task_id", get(get_task))
+        .route("/tasks/:task_id/result", put(put_task_result))
         .with_state(state.clone());
 
     let addr = format!("{}:{}", host, port);
     log::info!("[sync] Hub listening on http://{addr}");
     println!("Creeper Hub listening on http://{addr}");
-    println!("  GET  /journal  — full player journal");
-    println!("  POST /merge    — merge remote journal");
-    println!("  GET  /status   — health & stats");
+    println!("  GET  /journal      — full player journal");
+    println!("  POST /merge        — merge remote journal");
+    println!("  GET  /status       — health & stats");
+    println!("  POST /tasks        — submit scan task");
+    println!("  GET  /tasks        — list all tasks");
+    println!("  GET  /tasks/dequeue — claim a task (worker)");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(

