@@ -421,14 +421,12 @@ pub async fn pull_from_hub(hub_url: &str) -> Option<PlayerJournal> {
 
 /// Query a Hub and print a human-readable node status summary.
 pub async fn print_node_status(hub_url: &str) {
-    // Auto-prepend http:// if no scheme present
     let base = if hub_url.contains("://") {
         hub_url.trim_end_matches('/').to_string()
     } else {
         format!("http://{}", hub_url.trim_end_matches('/'))
     };
 
-    // Fetch status
     print!("Connecting to {base} ... ");
     let status = pull_status(&base).await;
     match status {
@@ -439,9 +437,14 @@ pub async fn print_node_status(hub_url: &str) {
     let uptime = status["uptime_secs"].as_u64().unwrap_or(0);
     let target = status["target"].as_str().unwrap_or("?");
     let total_players = status["total_players"].as_u64().unwrap_or(0);
+    let pending_tasks = status["pending_tasks"].as_u64().unwrap_or(0);
 
-    // Fetch journal for per-server breakdown
     let journal = pull_from_hub(&base).await;
+    let tasks = pull_tasks(&base).await;
+
+    let running_tasks = tasks.iter().filter(|t| {
+        t["status"].as_str().unwrap_or("") == "Running"
+    }).count();
 
     println!();
     println!("┌─ Node: {base} ──────────────────────────────");
@@ -449,6 +452,7 @@ pub async fn print_node_status(hub_url: &str) {
     println!("│ Target  : {target}");
     println!("│ Uptime  : {}m {}s", uptime / 60, uptime % 60);
     println!("│ Players : {total_players} tracked across all servers");
+    println!("│ Tasks   : {} pending, {} running", pending_tasks, running_tasks);
     println!("├─ Servers ──────────────────────────────────");
 
     if let Some(ref j) = journal {
@@ -457,18 +461,61 @@ pub async fn print_node_status(hub_url: &str) {
         } else {
             for (srv, entries) in &j.players {
                 let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+                let names_str = if names.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", names.join(", "))
+                };
                 println!(
-                    "│ {:42} {:>3} players  {}",
+                    "│ {:<35}  {:>3} players{}",
                     srv,
                     entries.len(),
-                    if names.is_empty() { String::new() } else { format!("[{}]", names.join(", ")) }
+                    names_str
                 );
             }
         }
     } else {
         println!("│ (journal unavailable)");
     }
+
+    if !tasks.is_empty() {
+        println!("├─ Tasks ───────────────────────────────────");
+        for task in tasks {
+            let id = task["id"].as_str().unwrap_or("?");
+            let status = task["status"].as_str().unwrap_or("?");
+            let domains = task["params"]["domains"].as_array().map(|a| a.len()).unwrap_or(0);
+            let ports = task["params"]["ports"].as_array().map(|a| a.len()).unwrap_or(0);
+            let claimed = task["claimed_by"].as_str().unwrap_or("-");
+            println!("│ {}  {}  {} domains  {} ports  {}",
+                id.split('-').next().unwrap_or(id),
+                status,
+                domains,
+                ports,
+                if claimed != "-" { format!("({})", claimed.split('-').last().unwrap_or(claimed)) } else { "-".to_string() }
+            );
+        }
+    }
+
     println!("└────────────────────────────────────────────");
+}
+
+async fn pull_tasks(hub_url: &str) -> Vec<serde_json::Value> {
+    let url = format!("{}/tasks", hub_url.trim_end_matches('/'));
+    match reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                resp.json().await.ok().unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        }
+        Err(_) => Vec::new(),
+    }
 }
 
 /// Pull status info from a Hub.
