@@ -175,6 +175,84 @@
         }
       },
       "additionalProperties": false
+    },
+    "hub": {
+      "type": "object",
+      "description": "Hub (central sync node) settings — supports multiple nodes, each with multiple connection methods",
+      "properties": {
+        "default_node": {
+          "type": "string",
+          "description": "id or label of the default hub node. Empty = use nodes[0]",
+          "default": ""
+        },
+        "nodes": {
+          "type": "array",
+          "description": "Registered hub nodes",
+          "items": {
+            "type": "object",
+            "description": "A single hub node",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique identifier (sha256 / uuid / human-readable label)",
+                "examples": ["scanner-node", "probe-node", "a1b2c3d4e5f6"]
+              },
+              "label": {
+                "type": "string",
+                "description": "Human-readable alias",
+                "default": ""
+              },
+              "role": {
+                "type": "string",
+                "description": "Node role: probe (monitor only) / scanner / hub",
+                "default": "",
+                "examples": ["probe", "scanner", "hub"]
+              },
+              "connections": {
+                "type": "array",
+                "description": "Connection methods, auto-picked by priority (ascending)",
+                "items": {
+                  "type": "object",
+                  "description": "A single connection method",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "description": "Connection type",
+                      "enum": ["ipv4", "ipv6", "nat", "forward-http", "reverse-http", "forward-ws", "reverse-ws", "forward-tcp", "reverse-tcp", "tor", "i2p", "other"]
+                    },
+                    "url": {
+                      "type": "string",
+                      "description": "Full URL with scheme + port",
+                      "examples": ["http://1.2.3.4:9090", "http://[2001:db8::1]:9090"]
+                    },
+                    "priority": {
+                      "type": "integer",
+                      "description": "Priority (smaller = preferred). Auto-sorted ascending",
+                      "default": 0
+                    },
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Whether this connection is selectable",
+                      "default": true
+                    },
+                    "note": {
+                      "type": "string",
+                      "description": "Free-text note",
+                      "default": ""
+                    }
+                  },
+                  "required": ["kind", "url"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["id", "connections"],
+            "additionalProperties": false
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
