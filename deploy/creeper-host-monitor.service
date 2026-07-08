@@ -1,16 +1,17 @@
 [Unit]
-Description=Creeper Hub — MC player journal sync API
+Description=Creeper Host Monitor — local RAM/CPU/disk/uptime probe, sync to hub
 Documentation=https://github.com/user/creeper
-After=network-online.target
-Wants=network-online.target
+After=network-online.target creeper-hub.service
+Wants=network-online.target creeper-hub.service
 
 [Service]
 Type=simple
 User=creeper
 Group=creeper
-ExecStart=/opt/creeper/creeper hub-serve --host 0.0.0.0 --port 9090 --target mc-hub
+WorkingDirectory=/opt/creeper
+ExecStart=/opt/creeper/creeper host-monitor --hub http://127.0.0.1:9090 --interval 60
 Restart=always
-RestartSec=5
+RestartSec=10
 StandardOutput=journal
 StandardError=journal
 

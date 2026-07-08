@@ -12,6 +12,7 @@ mod c2core;
 mod config;
 mod crawl;
 mod discover;
+mod host;
 mod tasks;
 mod entity_location;
 mod factory;
@@ -38,9 +39,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Start attack with current config / CLI overrides
-    #[command(visible_alias = "s")]
-    Start {
+    /// Minecraft stress-test bot（压测 MC 服务器，对外攻击性）
+    #[command(visible_alias = "mcs")]
+    McStress {
         /// Server hostname
         #[arg(short, long)]
         host: Option<String>,
@@ -97,9 +98,9 @@ enum Commands {
         action: Option<ConfigAction>,
     },
 
-    /// Print server info (MOTD, players, version)
-    #[command(visible_alias = "i")]
-    Info {
+    /// 单次探一个 Minecraft 服务器的 MOTD / 玩家 / 版本
+    #[command(visible_alias = "mci")]
+    McInfo {
         /// Server hostname
         host: Option<String>,
 
@@ -108,10 +109,10 @@ enum Commands {
         port: u16,
     },
 
-    /// Monitor server(s) — periodically ping and collect player names.
-    /// Use --targets to monitor multiple servers from a JSON file.
-    #[command(visible_alias = "m")]
-    Monitor {
+    /// 循环探 Minecraft 服务器在线状态 + 玩家名册，sync 到 hub。
+    /// 用 --targets 从 JSON 文件监控多服。
+    #[command(visible_alias = "mcm")]
+    McMonitor {
         /// Server hostname (single target mode)
         host: Option<String>,
 
@@ -124,7 +125,7 @@ enum Commands {
         interval: u64,
 
         /// Hub URL to sync journal to (e.g. http://printer:9090).
-        /// Falls back to `hub.url` in config, then http://127.0.0.1:9090.
+        /// Falls back to `hub.default_node` in config, then http://127.0.0.1:9090.
         #[arg(long)]
         hub: Option<String>,
 
@@ -133,10 +134,10 @@ enum Commands {
         targets: Option<String>,
     },
 
-    /// Discover MC servers by scanning domain patterns + port ranges.
-    /// Example: creeper discover --domains "srv{}.example.com:1..50" --ports "25565,10000-10500"
-    #[command(visible_alias = "d")]
-    Discover {
+    /// 扫域名模式 + 端口段找 Minecraft 服务器
+    /// Example: creeper mc-discover --domains "srv{}.example.com:1..50" --ports "25565,10000-10500"
+    #[command(visible_alias = "mcd")]
+    McDiscover {
         /// Domain patterns: "template:start..end", repeatable.
         /// e.g. --domains "srv{}.example.com:1..50"
         #[arg(short = 'D', long, required = true)]
@@ -156,9 +157,9 @@ enum Commands {
         json: bool,
     },
 
-    /// Send HTTP/HTTPS flood (concurrent requests)
-    #[command(visible_alias = "h")]
-    Http {
+    /// HTTP/HTTPS flood（并发请求 flooding，对外攻击性）
+    #[command(visible_alias = "hf")]
+    HttpFlood {
         /// Target URL
         url: String,
 
@@ -195,28 +196,37 @@ enum Commands {
         timeout: u64,
     },
 
-    /// Check if a domain is behind a CDN (Cloudflare, etc.)
+    /// 查域名是否在 CDN（Cloudflare 等）后
     #[command(visible_alias = "ck")]
-    Check {
+    CdnCheck {
         /// Domain name to check
         domain: String,
     },
 
-    /// Query a Creeper Hub node for status and player journal.
-    #[command(visible_alias = "hb")]
-    Hub {
-        /// Hub URL (e.g. http://localhost:9090). Optional: falls back to `hub.url` in config,
+    /// 查 Creeper Hub 节点状态 + 环家名册（合并旧 hub + status）
+    ///   `creeper hub-query`                 → 节点元信息（health/uptime/target/total players）
+    ///   `creeper hub-query --scope players`  → 完整玩家名册（per-server names + roles）
+    ///   `creeper hub-query --scope servers`  → per-server overview
+    ///   `creeper hub-query --scope all`      → merged JSON: node meta + servers + players
+    ///   `creeper hub-query --scope hosts`    → 本机资源探针聚合（host-monitor 上报）
+    #[command(visible_alias = "hq")]
+    HubQuery {
+        /// Hub URL (e.g. http://localhost:9090). Optional: falls back to `hub.default_node` in config,
         /// then http://127.0.0.1:9090. Auto-prepends `http://` if no scheme.
         url: Option<String>,
 
-        /// Override the hub URL (same as the positional argument).
+        /// What to fetch: `players`, `servers`, `all`, `hosts`. Omit for node meta only.
+        #[arg(short = 's', long)]
+        scope: Option<StatusScope>,
+
+        /// Override the hub URL (same as the positional `url`).
         #[arg(long)]
         hub: Option<String>,
     },
 
-    /// Submit a scan task to the Hub for distributed processing.
-    #[command(visible_alias = "sub")]
-    Submit {
+    /// 提交扫描任务到 Hub 分发给 worker
+    #[command(visible_alias = "hsub")]
+    HubSubmit {
         /// Hub URL to submit to (e.g. http://printer:9090)
         #[arg(long)]
         hub: Option<String>,
@@ -233,9 +243,9 @@ enum Commands {
         concurrency: usize,
     },
 
-    /// Worker mode: pull tasks from Hub and execute them.
-    #[command(visible_alias = "wk")]
-    Worker {
+    /// Worker 模式：从 Hub poll 任务并执行
+    #[command(visible_alias = "hw")]
+    HubWorker {
         /// Hub URL to pull tasks from (e.g. http://printer:9090)
         #[arg(long)]
         hub: Option<String>,
@@ -249,15 +259,15 @@ enum Commands {
         poll_interval: u64,
     },
 
-    /// List tasks from Hub.
-    #[command(visible_alias = "tl")]
-    TaskList {
+    /// 列 Hub 上的所有任务
+    #[command(visible_alias = "ht")]
+    HubTasks {
         /// Hub URL (e.g. http://printer:9090)
         #[arg(long)]
         hub: Option<String>,
     },
 
-    /// Terminal UI dashboard (monitor + flood control)
+    /// Terminal UI dashboard（MC 监控 + flood 控制）
     #[command(visible_alias = "t")]
     Tui {
         /// Server hostname to monitor
@@ -268,21 +278,21 @@ enum Commands {
         port: u16,
 
         /// Hub URL to pull journal from (e.g. http://printer:9090).
-        /// Falls back to `hub.url` in config, then http://127.0.0.1:9090.
+        /// Falls back to `hub.default_node` in config, then http://127.0.0.1:9090.
         #[arg(long)]
         hub: Option<String>,
     },
 
-    /// Manage system service (install/start/stop/status)
+    /// 装/启/停/查 systemd 服务
     #[command(visible_alias = "sv")]
     Service {
         #[command(subcommand)]
         action: ServiceAction,
     },
 
-    /// Start sync hub — serve journal API for other nodes
-    #[command(visible_alias = "srv")]
-    Serve {
+    /// 启 Hub 服务端 — 给其他节点 sync 用
+    #[command(visible_alias = "hs")]
+    HubServe {
         /// Listen host
         #[arg(long, default_value = "0.0.0.0")]
         host: String,
@@ -296,9 +306,9 @@ enum Commands {
         target: String,
     },
 
-    /// Show player journal (local or from a hub)
-    #[command(visible_alias = "j")]
-    Journal {
+    /// 看 Minecraft 环家名册（本地或从 hub 拉）
+    #[command(visible_alias = "mcj")]
+    McJournal {
         /// Server hostname filter
         host: Option<String>,
 
@@ -307,33 +317,14 @@ enum Commands {
         port: u16,
 
         /// Hub URL to pull from (e.g. http://printer:9090).
-        /// Falls back to `hub.url` in config, then http://127.0.0.1:9090.
+        /// Falls back to `hub.default_node` in config, then http://127.0.0.1:9090.
         #[arg(long)]
         hub: Option<String>,
     },
 
-    /// Show hub status. With --scope, fetch richer data from the hub.
-    ///   `creeper status`                  → node meta only (health, uptime, target, total players)
-    ///   `creeper status --scope players`  → full player journal (per-server player names + roles)
-    ///   `creeper status --scope servers`  → per-server overview (server → player count + names)
-    ///   `creeper status --scope all`      → merged JSON: node meta + servers + players
-    Status {
-        /// Hub URL (e.g. http://printer:9090). Optional: falls back to `hub.url` in config,
-        /// then http://127.0.0.1:9090. Auto-prepends `http://` if no scheme.
-        url: Option<String>,
-
-        /// What to fetch: `players`, `servers`, `all`. Omit for node meta only.
-        #[arg(short = 's', long)]
-        scope: Option<StatusScope>,
-
-        /// Override the hub URL (same as the positional `url`).
-        #[arg(long)]
-        hub: Option<String>,
-    },
-
-    /// Annotate a player (set role/note)
-    #[command(visible_alias = "a")]
-    Annotate {
+    /// 给 Minecraft 环家打标�注（role / note）
+    #[command(visible_alias = "mca")]
+    McAnnotate {
         /// Server hostname
         host: Option<String>,
 
@@ -353,18 +344,18 @@ enum Commands {
         note: String,
     },
 
-    /// Build a portable C2 agent binary (educational use)
-    #[command(visible_alias = "b")]
-    Build {
+    /// 构建 C2 agent 二进制（教育用途）
+    #[command(visible_alias = "cb")]
+    C2Build {
         /// C2 server address(es) to hardcode into the agent
         #[arg(short = 'S', long = "server", required = true)]
         servers: Vec<String>,
     },
 
-    /// Crawl pending_scan domains slowly over time (long-running exploration)
+    /// 慢速长跑扫 pending_scan 域名（长期探索，低并发）
     /// Designed for Arch node — low concurrency, long delays between rounds
-    #[command(visible_alias = "cr")]
-    Crawl {
+    #[command(visible_alias = "mcc")]
+    McCrawl {
         /// Path to mc-targets.json (default: ./data/mc-targets.json)
         #[arg(long)]
         targets: Option<String>,
@@ -386,9 +377,9 @@ enum Commands {
         port_delay_ms: u64,
     },
 
-    /// Scan IPv4 range + ports with protocol detection (nmap-like)
-    #[command(visible_alias = "sc")]
-    Scan {
+    /// IPv4 范围 + 端口扫描，带协议检测（nmap 式）
+    #[command(visible_alias = "ps")]
+    PortScan {
         /// Target IP(s): single (1.1.1.1), CIDR (1.1.1.0/24), or range (1.1.1.1~1.1.1.254)
         #[arg(short = 'T', long, required = true)]
         target: Vec<String>,
@@ -406,8 +397,23 @@ enum Commands {
         concurrency: usize,
     },
 
-    /// Probe local system info — OS, admin, available shells
-    Probe,
+    /// 单次探本机系统信息：OS / admin / 可用 shell
+    #[command(visible_alias = "hi")]
+    HostInfo,
+
+    /// 循环探本机资源（CPU/RAM/磁盘/在线/负载/网络），POST 到 hub `/host-report`。
+    /// 这才是"探针"角色 —— 监控这台 Linux 是否在线 + 资源占用，不探 MC server。
+    #[command(visible_alias = "hm")]
+    HostMonitor {
+        /// Hub URL to sync host reports to.
+        /// Falls back to `hub.default_node` in config, then http://127.0.0.1:9090.
+        #[arg(long)]
+        hub: Option<String>,
+
+        /// Poll interval in seconds (default: 60)
+        #[arg(long, default_value_t = 60)]
+        interval: u64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -438,12 +444,65 @@ enum ConfigAction {
     /// Set the hub (central node) URL stored in config, so commands like
     /// `creeper status` / `hub` / `journal` use it without re-typing.
     /// Example: `creeper config set-hub http://<your-hub-ip>:9090`
+    /// **Legacy**：仍可用，效果是把默认节点的唯一连接改成此 URL。
     #[command(visible_alias = "sh")]
     SetHub {
         /// Hub URL, e.g. `http://<your-hub-ip>:9090` or just `<your-hub-ip>:9090`
         /// (http:// is auto-prepended if no scheme).
         url: String,
     },
+    /// 登记一个新 hub 节点（多节点多连接方式）。
+    /// 例：`creeper config add-node --id <sha256|label> --label arch-lab --role scanner --url http://<your-hub>:9090 --kind ipv4`
+    #[command(visible_alias = "an")]
+    AddNode {
+        /// 唯一标识符（sha256 / uuid / 人类可读 label 都行）。
+        #[arg(long)]
+        id: String,
+        /// 人类可读别名。
+        #[arg(long, default_value = "")]
+        label: String,
+        /// 节点角色：probe / scanner / hub。
+        #[arg(long, default_value = "")]
+        role: String,
+        /// 第一个连接方式的 URL。
+        #[arg(long)]
+        url: String,
+        /// 连接类型：ipv4 / ipv6 / nat / forward-http / reverse-http / forward-ws / reverse-ws / forward-tcp / reverse-tcp / tor / i2p / other。
+        #[arg(long, default_value = "ipv4")]
+        kind: String,
+        /// 优先级（小者优先）。
+        #[arg(long, default_value_t = 0)]
+        priority: i32,
+        /// 备注。
+        #[arg(long, default_value = "")]
+        note: String,
+        /// 登记后是否设为默认节点。
+        #[arg(long)]
+        default: bool,
+    },
+    /// 给已登记的 hub 节点追加一个连接方式。
+    /// 例：`creeper config add-conn --node arch-lab --kind nat --url http://<your-nat-host>:<nat-port> --priority 5`
+    #[command(visible_alias = "ac")]
+    AddConn {
+        /// 目标节点的 id 或 label。
+        #[arg(long)]
+        node: String,
+        /// 连接类型。
+        #[arg(long, default_value = "ipv4")]
+        kind: String,
+        /// 连接 URL。
+        #[arg(long)]
+        url: String,
+        /// 优先级。
+        #[arg(long, default_value_t = 0)]
+        priority: i32,
+        /// 备注。
+        #[arg(long, default_value = "")]
+        note: String,
+    },
+    /// 列出已登记的所有 hub 节点与其连接方式。
+    #[command(visible_alias = "ln")]
+    ListNodes,
 }
 
 /// Scope argument for `creeper status` — controls which hub endpoint(s) to fetch.
@@ -455,6 +514,8 @@ enum StatusScope {
     Servers,
     /// Merged JSON: node meta (from /status) + servers + players (from /journal)
     All,
+    /// Host probes aggregated (from /host-report) — RAM/CPU/disk/uptime/load/nets
+    Hosts,
 }
 
 #[tokio::main]
@@ -504,19 +565,147 @@ async fn main() -> anyhow::Result<()> {
                         } else {
                             format!("http://{}", url.trim_end_matches('/'))
                         };
-                        // Load existing config (or default), update hub.url, save
+                        // Load existing config (or default), update default node, save
                         let mut cfg = if path.exists() {
                             Config::load_from(Some(&path)).unwrap_or_default()
                         } else {
                             Config::default()
                         };
-                        cfg.hub.url = normalized.clone();
+                        // 写入默认节点 default 的唯一 ipv4 连接（兼容旧用法）
+                        let node_id = if cfg.hub.default_node.is_empty() { "default" } else { &cfg.hub.default_node };
+                        if let Some(node) = cfg.hub.nodes.iter_mut().find(|n| n.id == node_id) {
+                            // 已有节点：替换其 connections 为单连接
+                            node.connections = vec![config::HubConnection {
+                                kind: "ipv4".into(),
+                                url: normalized.clone(),
+                                priority: 0,
+                                enabled: true,
+                                note: String::new(),
+                            }];
+                        } else {
+                            // 新建默认节点
+                            cfg.hub.nodes.push(config::HubNode {
+                                id: node_id.to_string(),
+                                label: String::new(),
+                                role: String::new(),
+                                connections: vec![config::HubConnection {
+                                    kind: "ipv4".into(),
+                                    url: normalized.clone(),
+                                    priority: 0,
+                                    enabled: true,
+                                    note: String::new(),
+                                }],
+                            });
+                            if cfg.hub.default_node.is_empty() {
+                                cfg.hub.default_node = "default".into();
+                            }
+                        }
                         cfg.save_to(&path)?;
-                        println!("✓ Hub URL set to {}", normalized);
+                        println!("✓ Default hub connection set to {}", normalized);
                         println!("  Saved to {}", path.display());
                         println!();
                         println!("  Now `creeper status`, `creeper hub`, `creeper journal`, `creeper tui`");
                         println!("  will automatically use this hub. No need to pass --hub each time.");
+                        println!();
+                        println!("  Tip: 用 `creeper config add-node` / `add-conn` 登记多节点多连接方式。");
+                        return Ok(());
+                    }
+                    ConfigAction::AddNode { id, label, role, url, kind, priority, note, default } => {
+                        let path = cli.config.clone().unwrap_or_else(|| Config::path().unwrap_or_default());
+                        let mut cfg = if path.exists() {
+                            Config::load_from(Some(&path)).unwrap_or_default()
+                        } else {
+                            Config::default()
+                        };
+                        let normalized = if url.contains("://") {
+                            url.trim_end_matches('/').to_string()
+                        } else {
+                            format!("http://{}", url.trim_end_matches('/'))
+                        };
+                        if cfg.hub.nodes.iter().any(|n| n.id == id) {
+                            anyhow::bail!("Node id '{}' already exists. 用 `add-conn` 给它追加连接方式，或换 id。", id);
+                        }
+                        cfg.hub.nodes.push(config::HubNode {
+                            id: id.clone(),
+                            label: label.clone(),
+                            role: role.clone(),
+                            connections: vec![config::HubConnection {
+                                kind: kind.clone(),
+                                url: normalized.clone(),
+                                priority,
+                                enabled: true,
+                                note: note.clone(),
+                            }],
+                        });
+                        if default || cfg.hub.default_node.is_empty() {
+                            cfg.hub.default_node = id.clone();
+                        }
+                        cfg.save_to(&path)?;
+                        let tag = if default { " [default]" } else { "" };
+                        println!("✓ Node '{}' added (role={}, {} connection: {} {})", id, role, kind, normalized, tag);
+                        println!("  Saved to {}", path.display());
+                        return Ok(());
+                    }
+                    ConfigAction::AddConn { node, kind, url, priority, note } => {
+                        let path = cli.config.clone().unwrap_or_else(|| Config::path().unwrap_or_default());
+                        let mut cfg = if path.exists() {
+                            Config::load_from(Some(&path)).unwrap_or_default()
+                        } else {
+                            Config::default()
+                        };
+                        let normalized = if url.contains("://") {
+                            url.trim_end_matches('/').to_string()
+                        } else {
+                            format!("http://{}", url.trim_end_matches('/'))
+                        };
+                        match cfg.hub.nodes.iter_mut().find(|n| n.id == node || n.label == node) {
+                            Some(n) => {
+                                n.connections.push(config::HubConnection {
+                                    kind: kind.clone(),
+                                    url: normalized.clone(),
+                                    priority,
+                                    enabled: true,
+                                    note: note.clone(),
+                                });
+                                n.connections.sort_by_key(|c| c.priority);
+                            }
+                            None => anyhow::bail!("Node '{}' not found. 先用 `add-node` 登记。", node),
+                        }
+                        cfg.save_to(&path)?;
+                        println!("✓ Connection '{}' ({}) added to node '{}'", normalized, kind, node);
+                        println!("  Saved to {}", path.display());
+                        return Ok(());
+                    }
+                    ConfigAction::ListNodes => {
+                        let path = cli.config.clone().unwrap_or_else(|| Config::path().unwrap_or_default());
+                        let cfg = Config::load_from(Some(&path)).unwrap_or_default();
+                        if cfg.hub.nodes.is_empty() && cfg.hub.url.is_empty() {
+                            println!("(no hub nodes registered)");
+                            println!("  用 `creeper config add-node --id <id> --url <url> ...` 登记。");
+                            return Ok(());
+                        }
+                        let dn = if cfg.hub.default_node.is_empty() { "(none)" } else { &cfg.hub.default_node };
+                        println!("Default node: {dn}");
+                        println!();
+                        for n in &cfg.hub.nodes {
+                            println!("┌─ Node ─────────────────────────────────────");
+                            println!("│ id    : {}", n.id);
+                            if !n.label.is_empty() { println!("│ label : {}", n.label); }
+                            if !n.role.is_empty() { println!("│ role  : {}", n.role); }
+                            if n.connections.is_empty() {
+                                println!("│ (no connections)");
+                            } else {
+                                for (i, c) in n.connections.iter().enumerate() {
+                                    let tag = if c.enabled { "ON" } else { "OFF" };
+                                    println!("│ [{i}] {tag}  prio={}  {}  {}", c.priority, c.kind, c.url);
+                                    if !c.note.is_empty() { println!("│       note: {}", c.note); }
+                                }
+                            }
+                            println!("└──────────────────────────────────────────────");
+                        }
+                        if !cfg.hub.url.is_empty() && cfg.hub.nodes.is_empty() {
+                            println!("[legacy] hub.url = {}（建议用 add-node 迁移到 nodes）", cfg.hub.url);
+                        }
                         return Ok(());
                     }
                 }
@@ -555,7 +744,7 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", p.display());
         }
 
-        Some(Commands::Start { host, port, amount, delay, name_format, version,
+        Some(Commands::McStress { host, port, amount, delay, name_format, version,
                                 auto_register, proxies, nicks }) => {
             let mut cfg = cli.config.as_deref()
                 .and_then(|p| Config::load_from(Some(p)).ok())
@@ -575,7 +764,7 @@ async fn main() -> anyhow::Result<()> {
             run_attack(cfg, proxies_vec, nicks_vec).await;
         }
 
-        Some(Commands::Discover { domains, ports, concurrency, json }) => {
+        Some(Commands::McDiscover { domains, ports, concurrency, json }) => {
             let patterns: Vec<discover::DomainPattern> = domains
                 .iter()
                 .map(|d| discover::DomainPattern::parse(d))
@@ -598,7 +787,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::Info { host, port }) => {
+        Some(Commands::McInfo { host, port }) => {
             let host = host.unwrap_or_else(|| "127.0.0.1".to_string());
             log::info!("Querying server info for {}:{} ...", host, port);
 
@@ -614,9 +803,9 @@ async fn main() -> anyhow::Result<()> {
             motd::print_server_info(&result);
         }
 
-        Some(Commands::Monitor { host, port, interval, hub: hub_cli, targets }) => {
+        Some(Commands::McMonitor { host, port, interval, hub: hub_cli, targets }) => {
             let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref());
+            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref(), None);
             let sync_url = Some(hub_url);
 
             // Multi-target mode: --targets <file>
@@ -649,7 +838,7 @@ async fn main() -> anyhow::Result<()> {
             motd::monitor_sync(&host, port, -1, interval, sync_url.as_deref()).await?;
         }
 
-        Some(Commands::Http { url, method, concurrency, total, body, delay, header, proxy, timeout }) => {
+        Some(Commands::HttpFlood { url, method, concurrency, total, body, delay, header, proxy, timeout }) => {
             let http_method = http_flood::HttpMethod::from_str(&method)
                 .ok_or_else(|| anyhow::anyhow!("Invalid HTTP method: {}. Use GET, POST, PUT, DELETE, PATCH, HEAD, or OPTIONS", method))?;
 
@@ -684,15 +873,9 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::Hub { url, hub }) => {
+        Some(Commands::HubSubmit { hub, domains, ports, concurrency }) => {
             let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(url.as_deref().or(hub.as_deref()));
-            sync::print_node_status(&hub_url).await;
-        }
-
-        Some(Commands::Submit { hub, domains, ports, concurrency }) => {
-            let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(hub.as_deref());
+            let hub_url = cfg.resolve_hub_url(hub.as_deref(), None);
 
             let mut port_list = Vec::new();
             for part in ports.split(',') {
@@ -744,9 +927,9 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::Worker { hub, worker_id, poll_interval }) => {
+        Some(Commands::HubWorker { hub, worker_id, poll_interval }) => {
             let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(hub.as_deref());
+            let hub_url = cfg.resolve_hub_url(hub.as_deref(), None);
             let wid = worker_id.unwrap_or_else(|| {
                 format!("worker-{}", std::process::id())
             });
@@ -838,9 +1021,9 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::TaskList { hub }) => {
+        Some(Commands::HubTasks { hub }) => {
             let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(hub.as_deref());
+            let hub_url = cfg.resolve_hub_url(hub.as_deref(), None);
 
             let url = format!("{}/tasks", hub_url.trim_end_matches('/'));
             match reqwest::Client::new()
@@ -876,12 +1059,12 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::Check { domain }) => {
+        Some(Commands::CdnCheck { domain }) => {
             let check = http_flood::check_cdn(&domain);
             http_flood::print_cdn_check(&check);
         }
 
-        Some(Commands::Build { servers }) => {
+        Some(Commands::C2Build { servers }) => {
             use std::net::ToSocketAddrs;
             println!("Building C2 agent for servers (ordered by priority):");
             for (i, addr) in servers.iter().enumerate() {
@@ -902,7 +1085,7 @@ async fn main() -> anyhow::Result<()> {
             log::warn!("Payload generation not yet implemented — this is a placeholder");
         }
 
-        Some(Commands::Crawl { targets, ports, concurrency, round_delay, port_delay_ms }) => {
+        Some(Commands::McCrawl { targets, ports, concurrency, round_delay, port_delay_ms }) => {
             let targets_path = targets.unwrap_or_else(|| "./data/mc-targets.json".to_string());
             
             let mut port_ranges = Vec::new();
@@ -940,7 +1123,7 @@ async fn main() -> anyhow::Result<()> {
             crawl::crawl(config).await?;
         }
 
-        Some(Commands::Scan { target, ports, modes, concurrency }) => {
+        Some(Commands::PortScan { target, ports, modes, concurrency }) => {
             // Parse target IPs
             let mut all_ips = Vec::new();
             for t in &target {
@@ -988,9 +1171,9 @@ async fn main() -> anyhow::Result<()> {
             scanner::print_results(&results);
         }
 
-        Some(Commands::Probe) => {
+        Some(Commands::HostInfo) => {
             let info = c2core::collect_info();
-            println!("┌─ System Probe ────────────────────────────");
+            println!("┌─ Host Info ───────────────────────────────");
             println!("│ OS       : {}", info.os_name);
             println!("│ Hostname : {}", info.hostname);
             println!("│ Admin    : {}", info.is_admin);
@@ -1004,15 +1187,26 @@ async fn main() -> anyhow::Result<()> {
             println!("└───────────────────────────────────────────");
         }
 
-        Some(Commands::Serve { host, port, target }) => {
+        Some(Commands::HostMonitor { hub: hub_cli, interval }) => {
+            let cfg = Config::load();
+            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref(), None);
+            host::monitor_loop(&hub_url, interval).await?;
+        }
+
+        Some(Commands::HubServe { host, port, target }) => {
             sync::run_hub(&host, port, &target).await?;
         }
 
-        Some(Commands::Journal { host, port, hub: hub_cli }) => {
+        Some(Commands::McJournal { host, port, hub: hub_cli }) => {
             let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref());
+            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref(), None);
 
-            if hub_cli.is_some() || !cfg.hub.url.is_empty() {
+            // CLI --hub 传了，或 config 里登记了节点/旧 url → 拉 hub
+            let has_hub = hub_cli.is_some()
+                || !cfg.hub.default_node.is_empty()
+                || !cfg.hub.nodes.is_empty()
+                || !cfg.hub.url.is_empty();
+            if has_hub {
                 // Pull journal from hub — show all servers
                 if let Some(j) = sync::pull_from_hub(&hub_url).await {
                     if j.players.is_empty() {
@@ -1043,20 +1237,16 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Some(Commands::Status { url, hub, scope }) => {
+        Some(Commands::HubQuery { url, hub, scope }) => {
             let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(url.as_deref().or(hub.as_deref()));
+            let hub_url = cfg.resolve_hub_url(hub.as_deref(), url.as_deref());
 
             match scope {
-                // `creeper status` (no scope) → node meta only (back-compat)
+                // `creeper hub-query` (no scope) → 节点元信息（旧 print_node_status 风格）
                 None => {
-                    if let Some(status) = sync::pull_status(&hub_url).await {
-                        println!("{}", serde_json::to_string_pretty(&status).unwrap_or_default());
-                    } else {
-                        eprintln!("Failed to pull status from {}", hub_url);
-                    }
+                    sync::print_node_status(&hub_url).await;
                 }
-                // `creeper status players` → full player journal
+                // `creeper hub-query --scope players` → full player journal
                 Some(StatusScope::Players) => {
                     if let Some(j) = sync::pull_from_hub(&hub_url).await {
                         println!("{}", serde_json::to_string_pretty(&j).unwrap_or_default());
@@ -1064,7 +1254,7 @@ async fn main() -> anyhow::Result<()> {
                         eprintln!("Failed to pull journal from {}", hub_url);
                     }
                 }
-                // `creeper status servers` → per-server overview
+                // `creeper hub-query --scope servers` → per-server overview
                 Some(StatusScope::Servers) => {
                     if let Some(j) = sync::pull_from_hub(&hub_url).await {
                         let servers: Vec<serde_json::Value> = j.players.iter()
@@ -1088,7 +1278,23 @@ async fn main() -> anyhow::Result<()> {
                         eprintln!("Failed to pull journal from {}", hub_url);
                     }
                 }
-                // `creeper status all` → merged: node meta + servers + players
+                // `creeper hub-query --scope hosts` → host probes aggregated (from /host-report)
+                Some(StatusScope::Hosts) => {
+                    let url = format!("{}/host-report", hub_url.trim_end_matches('/'));
+                    match reqwest::Client::new()
+                        .get(&url)
+                        .timeout(std::time::Duration::from_secs(10))
+                        .send().await
+                    {
+                        Ok(resp) if resp.status().is_success() => {
+                            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+                            println!("{}", serde_json::to_string_pretty(&body).unwrap_or_default());
+                        }
+                        Ok(resp) => eprintln!("Hub returned {} for {}", resp.status(), url),
+                        Err(e) => eprintln!("Failed to reach {}: {}", url, e),
+                    }
+                }
+                // `creeper hub-query --scope all` → merged: node meta + servers + players + hosts
                 Some(StatusScope::All) => {
                     let status = sync::pull_status(&hub_url).await;
                     let journal = sync::pull_from_hub(&hub_url).await;
@@ -1119,13 +1325,22 @@ async fn main() -> anyhow::Result<()> {
                         // Full journal too
                         merged.insert("journal".into(), serde_json::json!(j));
                     }
+                    // hosts probe
+                    let hr_url = format!("{}/host-report", hub_url.trim_end_matches('/'));
+                    if let Ok(resp) = reqwest::Client::new().get(&hr_url).timeout(std::time::Duration::from_secs(10)).send().await {
+                        if resp.status().is_success() {
+                            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                                merged.insert("host_probes".into(), body);
+                            }
+                        }
+                    }
                     merged.insert("hub".into(), serde_json::json!(hub_url));
                     println!("{}", serde_json::to_string_pretty(&merged).unwrap_or_default());
                 }
             }
         }
 
-        Some(Commands::Annotate { host, port, player, role, note }) => {
+        Some(Commands::McAnnotate { host, port, player, role, note }) => {
             let host = host.unwrap_or_else(|| "?".into());
             let mut journal = motd::PlayerJournal::load();
             journal.annotate(&host, port, &player, &role, &note);
@@ -1135,7 +1350,7 @@ async fn main() -> anyhow::Result<()> {
 
         Some(Commands::Tui { host: _, port: _, hub: hub_cli }) => {
             let cfg = Config::load();
-            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref());
+            let hub_url = cfg.resolve_hub_url(hub_cli.as_deref(), None);
             tui::run_tui(Some(&hub_url)).await?;
         }
 
