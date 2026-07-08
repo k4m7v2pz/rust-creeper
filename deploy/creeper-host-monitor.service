@@ -1,0 +1,26 @@
+[Unit]
+Description=Creeper Host Monitor — local RAM/CPU/disk/uptime probe, sync to hub
+Documentation=https://github.com/user/creeper
+After=network-online.target creeper-hub.service
+Wants=network-online.target creeper-hub.service
+
+[Service]
+Type=simple
+User=creeper
+Group=creeper
+WorkingDirectory=/opt/creeper
+ExecStart=/opt/creeper/creeper host-monitor --hub http://127.0.0.1:9090 --interval 60
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/creeper/data
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

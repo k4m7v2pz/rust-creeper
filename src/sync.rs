@@ -10,6 +10,7 @@
 
 use crate::motd::PlayerJournal;
 use crate::tasks::{self, Task, TaskQueue, TaskResult, TaskStatus, TaskType};
+use crate::host::HostReport;
 use axum::{
     Json, Router,
     extract::{ConnectInfo, Path, Query, State},
@@ -18,6 +19,7 @@ use axum::{
     routing::{get, post, put},
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -43,6 +45,8 @@ pub struct HubState {
     pub started_at: Instant,
     pub target: String,
     pub task_queue: Mutex<TaskQueue>,
+    /// 本机资源探针聚合：hostname → 最近一次 HostReport
+    pub host_reports: Mutex<BTreeMap<String, HostReport>>,
 }
 
 // -------------------- API handlers --------------------
@@ -270,12 +274,47 @@ async fn get_root(
             "raw_ua": ua,
         },
         "endpoints": {
-            "/":         "this page",
-            "/journal":  "GET — full player journal",
-            "/merge":    "POST — merge remote journal",
-            "/status":   "GET — health & stats",
+            "/":            "this page",
+            "/journal":     "GET — full player journal",
+            "/merge":       "POST — merge remote journal",
+            "/status":      "GET — health & stats",
+            "/host-report": "POST — submit host probe; GET — list all probes",
         },
         "players": players,
+    }))
+}
+
+// -------------------- host probe endpoints --------------------
+
+/// POST /host-report — 接收一次本机资源探针快照，按 hostname 覆盖登记。
+async fn post_host_report(
+    State(state): State<Arc<HubState>>,
+    Json(report): Json<HostReport>,
+) -> Utf8Json<serde_json::Value> {
+    let hostname = report.hostname.clone();
+    let ts = report.timestamp;
+    {
+        let mut reports = state.host_reports.lock().unwrap();
+        reports.insert(hostname.clone(), report);
+    }
+    log::info!("[hub] host-report stored: {} @ ts={}", hostname, ts);
+    Utf8Json(serde_json::json!({
+        "ok": true,
+        "hostname": hostname,
+        "timestamp": ts,
+        "stored": true,
+    }))
+}
+
+/// GET /host-report — 列出所有已登记节点的最近一次快照。
+async fn get_host_report(
+    State(state): State<Arc<HubState>>,
+) -> Utf8Json<serde_json::Value> {
+    let reports = state.host_reports.lock().unwrap();
+    let nodes: Vec<&HostReport> = reports.values().collect();
+    Utf8Json(serde_json::json!({
+        "node_count": nodes.len(),
+        "nodes": nodes,
     }))
 }
 
@@ -326,6 +365,7 @@ pub async fn run_hub(host: &str, port: u16, target: &str) -> anyhow::Result<()> 
         started_at: Instant::now(),
         target: target.to_string(),
         task_queue: Mutex::new(TaskQueue::new(tasks::default_queue_path())),
+        host_reports: Mutex::new(BTreeMap::new()),
     });
 
     let app = Router::new()
@@ -338,17 +378,21 @@ pub async fn run_hub(host: &str, port: u16, target: &str) -> anyhow::Result<()> 
         .route("/tasks/dequeue", get(get_task_dequeue))
         .route("/tasks/:task_id", get(get_task))
         .route("/tasks/:task_id/result", put(put_task_result))
+        .route("/host-report", post(post_host_report))
+        .route("/host-report", get(get_host_report))
         .with_state(state.clone());
 
     let addr = format!("{}:{}", host, port);
     log::info!("[sync] Hub listening on http://{addr}");
     println!("Creeper Hub listening on http://{addr}");
-    println!("  GET  /journal      — full player journal");
-    println!("  POST /merge        — merge remote journal");
-    println!("  GET  /status       — health & stats");
-    println!("  POST /tasks        — submit scan task");
-    println!("  GET  /tasks        — list all tasks");
+    println!("  GET  /journal       — full player journal");
+    println!("  POST /merge         — merge remote journal");
+    println!("  GET  /status        — health & stats");
+    println!("  POST /tasks         — submit scan task");
+    println!("  GET  /tasks         — list all tasks");
     println!("  GET  /tasks/dequeue — claim a task (worker)");
+    println!("  POST /host-report   — host probe submit (host-monitor)");
+    println!("  GET  /host-report   — list all host probes");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(
