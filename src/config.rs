@@ -23,11 +23,72 @@ pub struct Config {
 
 /// Creeper Hub (central sync node) configuration.
 /// Stored in config so commands like `creeper status` work without re-typing the URL each time.
+///
+/// 支持多个 hub 节点，每个节点可有多个连接方式（IPv4/IPv6/内网穿透/正向反向 HTTP/WS 等），
+/// 按优先级自动选可用 URL。旧的单 `url` 字段仍可反序列化（向后兼容），自动迁移为
+/// 一个含单连接的默认节点。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HubConfig {
-    /// Hub URL, e.g. `http://192.168.1.2:9090`. Empty = fall back to `http://127.0.0.1:9090`.
+    /// 默认 hub 节点的 id 或 label。CLI `--hub` 不指定时用此节点。
+    /// 空 = 取 `nodes` 第一个。
     #[serde(default)]
+    pub default_node: String,
+    /// 多个 hub 节点。每个有唯一 id + 多个连接方式。
+    #[serde(default)]
+    pub nodes: Vec<HubNode>,
+    /// **Deprecated** 旧单 URL 字段（向后兼容反序列化用）。不直接读取。
+    /// 反序列化时若 `nodes` 为空而此字段非空，自动迁移成一个节点。
+    #[serde(default, skip_serializing)]
     pub url: String,
+}
+
+/// 单个 hub 节点。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HubNode {
+    /// 唯一标识符。建议用 sha256（hostname:port 的 sha256 前 16 hex）或 uuid。
+    /// 也可是人类可读 label（如 `scanner-node` / `probe-node`），CLI `--hub` 可用此匹配。
+    pub id: String,
+    /// 人类可读别名（可选）。CLI `--hub` 也会匹配此字段。
+    #[serde(default)]
+    pub label: String,
+    /// 节点角色：`probe`（探针，仅监控）/ `scanner`（扫描）/ `hub`（中枢聚合）。
+    /// Agent 据此判断可派什么任务。
+    #[serde(default)]
+    pub role: String,
+    /// 多个连接方式，按 `priority` 升序选可用 URL。
+    #[serde(default)]
+    pub connections: Vec<HubConnection>,
+}
+
+/// 单个连接方式。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HubConnection {
+    /// 连接类型：
+    /// - `ipv4`        IPv4 直连
+    /// - `ipv6`        IPv6 直连
+    /// - `nat`         内网穿透 IPv4 �口
+    /// - `forward-http` 正向 HTTP（本机直连远端 HTTP）
+    /// - `reverse-http` 反向 HTTP（远端反连本机暴露的 HTTP）
+    /// - `forward-ws`   正向 WebSocket
+    /// - `reverse-ws`   反向 WebSocket
+    /// - `forward-tcp`  正向裸 TCP
+    /// - `reverse-tcp`  反向裸 TCP
+    /// - `tor`          Tor onion
+    /// - `i2p`          I2P eepsite
+    /// - `other`        其他自定义
+    pub kind: String,
+    /// 实际 URL（含 scheme 与端口）。如 `http://1.2.3.4:9090`、`http://[2001:db8::1]:9090`、
+    /// `http://<your-nat-host>:<nat-port>`。CLI 自动用此值。
+    pub url: String,
+    /// 优先级（小者优先）。同节点多连接方式按此升序选第一个可用。默认 0。
+    #[serde(default)]
+    pub priority: i32,
+    /// 是否启用。false 则跳过不选。默认 true。
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// 备注（可选）。如 "家里宽带直连" / "vultr 反代"。
+    #[serde(default)]
+    pub note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,7 +195,7 @@ impl Default for ProxyConfig { fn default() -> Self { Self { list: vec![], file:
 impl Default for NicknameConfig { fn default() -> Self { Self { realistic: false, file: None, length: default_nick_len(), prefix: String::new() } } }
 impl Default for ServerConfig { fn default() -> Self { Self { ping_on_start: default_true() } } }
 impl Default for ApiConfig { fn default() -> Self { Self { enabled: false, bind: default_api_bind(), port: default_api_port() } } }
-impl Default for HubConfig { fn default() -> Self { Self { url: String::new() } } }
+impl Default for HubConfig { fn default() -> Self { Self { default_node: String::new(), nodes: vec![], url: String::new() } } }
 impl Default for Config {
     fn default() -> Self {
         Self { target: Default::default(), bot: Default::default(), proxy: Default::default(),
@@ -180,25 +241,81 @@ impl Config {
         if let Some(v) = auto_register { self.bot.auto_register = v; }
     }
 
-    /// Resolve the hub URL with precedence: CLI override > config file > built-in default.
-    /// `cli_url` is whatever the user passed on the command line (positional or `--hub`).
+    /// Resolve the hub URL with precedence:
+    ///   1. CLI override (`--hub <raw>`) — 若是节点 id/label 匹配则走该节点选可用连接，
+    ///      否则当裸 URL 用（auto-prepend `http://`）。
+    ///   2. config `hub.default_node` 指定节点 → 选该节点可用连接。
+    ///   3. config `hub.nodes[0]` → 选该节点可用连接。
+    ///   4. **Legacy** config `hub.url` 非空 → 直接用（向后兼容）。
+    ///   5. built-in default `http://127.0.0.1:9090`。
+    ///
+    /// `cli_hub` 是 CLI `--hub` 值（可为节点 id/label/裸 URL）。`cli_url` 是老的位置参数 URL。
     /// Auto-prepends `http://` if no scheme is present, and strips trailing slashes.
-    pub fn resolve_hub_url(&self, cli_url: Option<&str>) -> String {
+    pub fn resolve_hub_url(&self, cli_hub: Option<&str>, cli_url: Option<&str>) -> String {
         const DEFAULT_HUB: &str = "http://127.0.0.1:9090";
-        let raw = cli_url
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| {
-                let cfg = self.hub.url.trim();
-                if cfg.is_empty() { None } else { Some(cfg) }
-            })
-            .unwrap_or(DEFAULT_HUB);
-        let with_scheme = if raw.contains("://") {
-            raw.to_string()
-        } else {
-            format!("http://{}", raw)
-        };
-        with_scheme.trim_end_matches('/').to_string()
+
+        // 1. CLI --hub <id|label|url>
+        if let Some(h) = cli_hub.filter(|s| !s.trim().is_empty()) {
+            // 先按 id/label 匹配节点
+            if let Some(node) = self.find_node(h) {
+                if let Some(url) = self.pick_connection(node) {
+                    return url;
+                }
+            }
+            // 否则当裸 URL 用
+            return normalize_url(h);
+        }
+        // 1b. CLI 老 positional URL
+        if let Some(u) = cli_url.filter(|s| !s.trim().is_empty()) {
+            return normalize_url(u);
+        }
+        // 2. config default_node
+        if !self.hub.default_node.trim().is_empty() {
+            if let Some(node) = self.find_node(&self.hub.default_node) {
+                if let Some(url) = self.pick_connection(node) {
+                    return url;
+                }
+            }
+        }
+        // 3. config nodes[0]
+        if let Some(node) = self.hub.nodes.first() {
+            if let Some(url) = self.pick_connection(node) {
+                return url;
+            }
+        }
+        // 4. legacy url
+        let legacy = self.hub.url.trim();
+        if !legacy.is_empty() {
+            return normalize_url(legacy);
+        }
+        // 5. built-in default
+        DEFAULT_HUB.to_string()
     }
+
+    /// 按节点查询：匹配 id 或 label（精确匹配优先，其次 contains）。
+    fn find_node(&self, key: &str) -> Option<&HubNode> {
+        let k = key.trim();
+        self.hub.nodes.iter().find(|n| n.id == k || n.label == k)
+            .or_else(|| self.hub.nodes.iter().find(|n| n.id.contains(k) || n.label.contains(k)))
+    }
+
+    /// 按优先级选节点第一个 enabled 的连接方式 URL。无则 None。
+    fn pick_connection(&self, node: &HubNode) -> Option<String> {
+        let mut conns: Vec<&HubConnection> = node.connections.iter()
+            .filter(|c| c.enabled)
+            .collect();
+        conns.sort_by_key(|c| c.priority);
+        conns.first().map(|c| normalize_url(&c.url))
+    }
+}
+
+fn normalize_url(raw: &str) -> String {
+    let with_scheme = if raw.contains("://") {
+        raw.to_string()
+    } else {
+        format!("http://{}", raw)
+    };
+    with_scheme.trim_end_matches('/').to_string()
 }
 
 pub fn print_default() {
