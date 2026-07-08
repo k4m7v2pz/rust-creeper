@@ -33,5 +33,9 @@
     "enabled": false,
     "bind": "127.0.0.1",
     "port": 9720
+  },
+  "hub": {
+    "default_node": "",
+    "nodes": []
   }
 }

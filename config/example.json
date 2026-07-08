@@ -40,5 +40,52 @@
     "enabled": true,
     "bind": "0.0.0.0",
     "port": 9720
+  },
+  "hub": {
+    "default_node": "scanner-node",
+    "nodes": [
+      {
+        "id": "scanner-node",
+        "label": "局域网扫 MC 用",
+        "role": "scanner",
+        "connections": [
+          {
+            "kind": "ipv4",
+            "url": "http://<your-hub-lan-ip>:9090",
+            "priority": 0,
+            "enabled": true,
+            "note": "局域网直连，最快"
+          },
+          {
+            "kind": "nat",
+            "url": "http://<your-nat-host>:<nat-port>",
+            "priority": 10,
+            "enabled": false,
+            "note": "外网时走内网穿透，平时关"
+          }
+        ]
+      },
+      {
+        "id": "probe-node",
+        "label": "公云探针（仅监控）",
+        "role": "probe",
+        "connections": [
+          {
+            "kind": "ipv4",
+            "url": "http://<your-probe-ip>:9090",
+            "priority": 0,
+            "enabled": true,
+            "note": "公云直连 IPv4"
+          },
+          {
+            "kind": "ipv6",
+            "url": "http://[<your-probe-ipv6>]:9090",
+            "priority": 1,
+            "enabled": false,
+            "note": "IPv6 备份"
+          }
+        ]
+      }
+    ]
   }
 }
