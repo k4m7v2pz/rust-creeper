@@ -6,6 +6,7 @@ use config::Config;
 use crate::attack::Creeper;
 
 mod attack;
+mod backup;
 mod bot;
 mod bot_connect;
 mod c2core;
@@ -413,6 +414,19 @@ enum Commands {
         /// Poll interval in seconds (default: 60)
         #[arg(long, default_value_t = 60)]
         interval: u64,
+    },
+
+    /// 数据备份打包 .zip（本地或从 Hub 远程拉取）
+    #[command(visible_alias = "b")]
+    Backup {
+        /// Remote Hub URL to pull data from (e.g. http://printer:9090).
+        /// Omit for local backup of this machine's data directory.
+        #[arg(short, long)]
+        remote: Option<String>,
+
+        /// Output directory for the backup .zip (default: data_dir/backups/)
+        #[arg(short, long)]
+        output: Option<String>,
     },
 }
 
@@ -1396,6 +1410,10 @@ async fn main() -> anyhow::Result<()> {
                     })?;
                 }
             }
+        }
+
+        Some(Commands::Backup { remote, output }) => {
+            backup::run_backup(remote.as_deref(), output.as_deref()).await?;
         }
 
         None => {

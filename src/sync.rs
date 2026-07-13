@@ -368,6 +368,16 @@ pub async fn run_hub(host: &str, port: u16, target: &str) -> anyhow::Result<()> 
         host_reports: Mutex::new(BTreeMap::new()),
     });
 
+    // 后台定时持久化 journal（每60秒），防止重启丢数据
+    let persist_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            persist_state.journal.lock().unwrap().save();
+        }
+    });
+
     let app = Router::new()
         .route("/", get(get_root))
         .route("/journal", get(get_journal))

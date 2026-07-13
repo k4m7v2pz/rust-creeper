@@ -27,3 +27,4 @@ axum = "0.7"
 tower = "0.5"
 tokio-util = { version = "0.7", features = ["rt"] }
 sysinfo = "0.33"
+zip = { version = "2", default-features = false, features = ["deflate"] }
