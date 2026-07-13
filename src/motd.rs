@@ -387,6 +387,11 @@ impl Default for PlayerJournal {
 
 impl PlayerJournal {
     fn path() -> Result<PathBuf> {
+        // 优先环境变量 CREEPER_DATA_DIR，用于 systemd 部署（ProtectHome=yes 时 XDG 不可写）
+        if let Ok(dir) = std::env::var("CREEPER_DATA_DIR") {
+            let p = PathBuf::from(dir).join("player-journal.json");
+            return Ok(p);
+        }
         let base = directories::ProjectDirs::from("", "", "creeper")
             .context("Cannot determine data directory")?
             .data_dir()

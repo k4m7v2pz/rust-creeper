@@ -1,0 +1,19 @@
+[Unit]
+Description=Creeper — daily data backup (.zip)
+Documentation=https://github.com/user/creeper
+
+[Service]
+Type=oneshot
+User=creeper
+Group=creeper
+Environment=CREEPER_DATA_DIR=/opt/creeper/data
+ExecStart=/opt/creeper/creeper backup --output /opt/creeper/data/backups
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening — same as creeper-hub.service
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/creeper/data
+PrivateTmp=yes
