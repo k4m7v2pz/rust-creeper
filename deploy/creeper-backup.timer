@@ -1,0 +1,10 @@
+[Unit]
+Description=Creeper — daily data backup (runs at 03:00)
+Documentation=https://github.com/user/creeper
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
