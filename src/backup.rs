@@ -8,7 +8,6 @@ use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
-use zip::write::FileOptions;
 use zip::ZipWriter;
 
 /// 获取数据目录路径：优先 CREEPER_DATA_DIR，fallback XDG

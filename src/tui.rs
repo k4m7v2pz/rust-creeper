@@ -11,9 +11,9 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute, terminal};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::{Frame, Terminal};
 
 use crate::motd;
@@ -328,7 +328,7 @@ fn render_footer(f: &mut Frame, area: Rect) {
 // ---------------------------------------------------------------------------
 
 /// Run the TUI dashboard.
-pub async fn run_tui(remote: Option<&str>) -> Result<()> {
+pub async fn run_tui(_remote: Option<&str>) -> Result<()> {
     let mut app = App::new();
 
     // Set up terminal
