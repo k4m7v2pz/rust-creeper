@@ -19,11 +19,12 @@ impl Creeper {
         let mut handles = Vec::with_capacity(options.amount);
         for i in 0..options.amount {
             let username = if !self.names.is_empty() {
-                if self.names.len() <= i {
-                    log::warn!("Name list too small, limiting");
-                    break;
+                if i >= self.names.len() {
+                    // 名字列表不足时回退到自动生成格式
+                    options.bot_name_format.replace("%d", &i.to_string())
+                } else {
+                    self.names[i].clone()
                 }
-                self.names[i].clone()
             } else {
                 options.bot_name_format.replace("%d", &i.to_string())
             };

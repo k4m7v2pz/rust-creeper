@@ -20,7 +20,7 @@ use uuid::Uuid;
 const SEGMENT_BITS: u32 = 0x7F;
 const CONTINUE_BIT: u32 = 0x80;
 
-fn write_varint(buf: &mut Vec<u8>, mut value: i32) {
+pub fn write_varint(buf: &mut Vec<u8>, mut value: i32) {
     let mut value = value as u32;
     loop {
         if (value & !SEGMENT_BITS) == 0 {
@@ -32,7 +32,7 @@ fn write_varint(buf: &mut Vec<u8>, mut value: i32) {
     }
 }
 
-fn read_varint(buf: &mut Cursor<&[u8]>) -> Result<i32> {
+pub fn read_varint(buf: &mut Cursor<&[u8]>) -> Result<i32> {
     let mut value: u32 = 0;
     let mut position = 0;
     loop {
@@ -58,22 +58,22 @@ fn read_u8(buf: &mut Cursor<&[u8]>) -> Result<u8> {
 // Packet writing helpers
 // ---------------------------------------------------------------------------
 
-fn write_string(buf: &mut Vec<u8>, s: &str) {
+pub fn write_string(buf: &mut Vec<u8>, s: &str) {
     let bytes = s.as_bytes();
     write_varint(buf, bytes.len() as i32);
     buf.extend_from_slice(bytes);
 }
 
-fn write_u16(buf: &mut Vec<u8>, v: u16) {
+pub fn write_u16(buf: &mut Vec<u8>, v: u16) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
 
-fn write_uuid(buf: &mut Vec<u8>, uuid: &Uuid) {
+pub fn write_uuid(buf: &mut Vec<u8>, uuid: &Uuid) {
     buf.extend_from_slice(uuid.as_bytes());
 }
 
 /// Wrap a raw packet payload with its length prefix (VarInt).
-fn packet_frame(payload: &[u8]) -> Vec<u8> {
+pub fn packet_frame(payload: &[u8]) -> Vec<u8> {
     let mut frame = Vec::with_capacity(payload.len() + 5);
     write_varint(&mut frame, payload.len() as i32);
     frame.extend_from_slice(payload);
@@ -85,7 +85,7 @@ fn packet_frame(payload: &[u8]) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 /// Read a full Minecraft packet: VarInt length → payload
-async fn read_packet(stream: &mut TcpStream) -> Result<Vec<u8>> {
+pub async fn read_packet(stream: &mut TcpStream) -> Result<Vec<u8>> {
     let length = read_varint_async(stream).await?;
     let mut payload = vec![0u8; length as usize];
     stream
@@ -95,7 +95,7 @@ async fn read_packet(stream: &mut TcpStream) -> Result<Vec<u8>> {
     Ok(payload)
 }
 
-async fn read_varint_async(stream: &mut TcpStream) -> Result<i32> {
+pub async fn read_varint_async(stream: &mut TcpStream) -> Result<i32> {
     let mut value: u32 = 0;
     let mut position = 0;
     loop {
@@ -114,6 +114,8 @@ async fn read_varint_async(stream: &mut TcpStream) -> Result<i32> {
         }
     }
 }
+
+/// Read a VarInt from a byte buffer (synchronous, from Cursor).
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -270,14 +272,14 @@ pub async fn login_offline(
 // Sync varint / string / uuid helpers for reading from Cursor
 // ---------------------------------------------------------------------------
 
-fn read_varint_string(buf: &mut Cursor<&[u8]>) -> Result<String> {
+pub fn read_varint_string(buf: &mut Cursor<&[u8]>) -> Result<String> {
     let len = read_varint(buf)?;
     let mut bytes = vec![0u8; len as usize];
     Read::read_exact(buf, &mut bytes).context("read string")?;
     String::from_utf8(bytes).context("invalid UTF-8 in string")
 }
 
-fn read_uuid_bytes(buf: &mut Cursor<&[u8]>) -> Result<Uuid> {
+pub fn read_uuid_bytes(buf: &mut Cursor<&[u8]>) -> Result<Uuid> {
     let mut bytes = [0u8; 16];
     Read::read_exact(buf, &mut bytes).context("read uuid")?;
     Ok(Uuid::from_bytes(bytes))
