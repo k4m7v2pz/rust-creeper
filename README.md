@@ -136,6 +136,7 @@ creeper config --edit
 |------|------|
 | [`docs/usage.md`](docs/usage.md) | 完整命令行参数说明 |
 | [`docs/design.md`](docs/design.md) | 架构设计文档 |
+| [`docs/attack-defense-notes.md`](docs/attack-defense-notes.md) | 攻击链头脑风暴与实现对照 |
 | [`docs/TODO.md`](docs/TODO.md) | 开发计划 |
 | [`docs/motd-network-errors.md`](docs/motd-network-errors.md) | MOTD 网络错误处理说明 |
 | [`data/schema.json`](data/schema.json) | 玩家日志数据格式 |
