@@ -155,7 +155,7 @@ pub async fn crawl(config: CrawlConfig) -> Result<()> {
             discovered_count += results.len();
             
             if config.save_on_discovery {
-                for (_provider, host, server) in &results {
+                for (provider, host, server) in &results {
                     let exists = targets_file.targets.iter().any(
                         |t| t.host == server.host && t.port == server.port
                     );

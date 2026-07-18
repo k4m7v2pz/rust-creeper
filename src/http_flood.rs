@@ -175,14 +175,14 @@ pub async fn start_flood(cfg: HttpFloodConfig) -> Result<FloodSnapshot> {
 
     // Spawn worker tasks
     let mut tasks = Vec::new();
-    let _shutdown_wait = shutdown.clone()();
+    let _shutdown_wait = shutdown.clone();
 
     for _worker_id in 0..cfg.concurrency {
         let stats = stats.clone();
         let semaphore = semaphore.clone();
         let url = url.clone();
         let headers = headers.clone();
-        let _proxies = proxies.clone()();
+        let _proxies = proxies.clone();
         let running = running.clone();
         let client = client.clone();
         let body_template = body_template.clone();
