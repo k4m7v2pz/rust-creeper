@@ -533,11 +533,11 @@ enum Commands {
     },
 
     /// egui 仪表盘（桌面/Web GUI）
-    ///   编译: cargo run --features gui -- web
+    ///   编译: cargo run --features gui -- webui
     ///   需要挂载一个 Hub URL（默认 http://127.0.0.1:9090）
     #[cfg(feature = "gui")]
     #[command(visible_alias = "w")]
-    Web {
+    Webui {
         /// Hub URL (e.g. http://printer:9090). Falls back to config.
         #[arg(short, long)]
         hub: Option<String>,
@@ -1537,7 +1537,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         #[cfg(feature = "gui")]
-        Some(Commands::Web { hub }) => {
+        Some(Commands::Webui { hub }) => {
             let cfg = Config::load();
             let hub_url = cfg.resolve_hub_url(hub.as_deref(), None);
             gui::run_gui(&hub_url).map_err(|e| anyhow::anyhow!("{}", e))?;
