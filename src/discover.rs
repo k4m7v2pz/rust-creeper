@@ -301,7 +301,7 @@ pub fn print_results(servers: &[DiscoveredServer]) {
     println!();
 }
 
-/// Generate JSON output for appending to mc-targets.json.
+/// Generate JSON output for appending to a targets file (e.g. targets-template.json).
 pub fn to_targets_json(servers: &[DiscoveredServer]) -> String {
     let entries: Vec<String> = servers
         .iter()

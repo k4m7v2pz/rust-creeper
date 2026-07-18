@@ -57,7 +57,7 @@ pub struct CrawlConfig {
 impl Default for CrawlConfig {
     fn default() -> Self {
         Self {
-            targets_path: "./data/mc-targets.json".to_string(),
+            targets_path: "./data/targets-template.json".to_string(),
             port_ranges: vec![(25565, 25565), (10000, 10500), (25000, 26000), (21000, 23000)],
             concurrency: 5,
             delay_between_groups: Duration::from_secs(300),

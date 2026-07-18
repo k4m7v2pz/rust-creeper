@@ -88,7 +88,7 @@ creeper mc-annotate mc.example.com Player123 --role 管理员 --note "服主"
 creeper mc-monitor mc.example.com -t 30
 
 # 多目标监控（从 JSON 文件读取目标列表）
-creeper mc-monitor --targets data/mc-targets.json
+creeper mc-monitor --targets data/targets-template.json
 
 # 带 Hub 同步
 creeper mc-monitor mc.example.com --hub http://my-hub:9090
@@ -161,7 +161,7 @@ creeper http-flood https://example.com -c 100 -X POST -b '{"key":"val"}' -H "Aut
 creeper mc-discover --domains "srv{}.example.com:1..50" --ports "25565,10000-10500"
 
 # 慢速爬取
-creeper mc-crawl --targets data/mc-targets.json -c 5 --round-delay 300
+creeper mc-crawl --targets data/targets-template.json -c 5 --round-delay 300
 
 # 端口扫描
 creeper port-scan -T 192.168.1.0/24 -p "22,80,443,3389" -m tcp,http

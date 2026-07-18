@@ -141,6 +141,10 @@ creeper config --edit
 | [`docs/motd-network-errors.md`](docs/motd-network-errors.md) | MOTD 网络错误处理说明 |
 | [`data/schema.json`](data/schema.json) | 玩家日志数据格式 |
 | [`config/schema.json`](config/schema.json) | 配置文件格式 |
+| [`data/targets-template.json`](data/targets-template.json) | 监控目标模板（示例，非实时数据） |
+
+> 💡 **实时数据不在本地**：已发现的服务器、玩家名册等实时数据通过 Hub API 获取。  
+> 详见 [`AGENTS.md`](AGENTS.md) 的"数据源架构"章节。
 
 ---
 

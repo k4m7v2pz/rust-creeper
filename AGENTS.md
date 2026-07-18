@@ -126,3 +126,36 @@ Agent 在执行 `git commit` 前必须：
 - **不引入重依赖**：如非必要不拉大依赖；schema 校验改用轻量手写 + 静态 schema 供外部工具。
 - **commit 前核对暂存区**：按本文件"脱敏政策"第 3 条执行。
 - **远端部署前**：交叉编译产物在本地 `cargo check --target x86_64-unknown-linux-musl` 过再 scp；systemd unit 装好后 `systemctl status` 验证不报错才算部署完成。
+
+### F. 数据源架构（Agent 新会话如何获取实时数据）
+
+> **核心原则：Git 仓库不跟踪运行时数据。`data/` 目录下的 JSON 文件都是种子模板，不是实时数据。**
+
+#### 实时数据源层级
+
+```
+printer (Arch Linux, 24h 在线)  ←── 实时数据源
+├── Hub API (http://printer:9090 或 localhost:9090)
+│   ├── GET  /journal       → 全部已发现服务器 + 玩家名册（最全）
+│   ├── GET  /              → 节点元信息 + 端点列表
+│   ├── GET  /status        → 健康检查 + 统计
+│   └── GET  /host-report   → 本机资源探针（CPU/RAM/磁盘）
+│
+├── /opt/creeper/data/mc-targets.json  → 运行时监控目标（含 crawl 发现）
+└── /opt/creeper/creeper               → 运行中的二进制
+```
+
+#### Agent 新会话数据获取口诀
+
+1. **查发现结果** → `ssh printer 'curl -s http://localhost:9090/journal'`
+2. **查监控目标** → `ssh printer 'cat /opt/creeper/data/mc-targets.json'`
+3. **查探针状态** → `ssh printer 'curl -s http://localhost:9090/host-report'`
+4. **查服务状态** → `ssh printer 'sudo systemctl status creeper-hub creeper-monitor'`
+5. **本地文件 (`data/`)** 只是种子模板，不作为数据源
+
+#### 为什么这样设计
+
+- `data/mc-targets.json` 在 git 中只有 2-3 个示例目标，但 printer 上 crawl 已发现 315 个服务器
+- 每次 `scp deploy` 会用 git 版本覆盖 printer 的运行时文件，所以 `targets` 数组会重置
+- 真正的完整数据在 Hub API 的 journal 中持久化，不受部署影响
+- Agent 新会话如果只读本地文件，拿到的信息落后 2 个数量级
