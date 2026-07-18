@@ -24,6 +24,7 @@ mod logging;
 mod motd;
 mod options;
 mod protocol;
+mod real_session;
 mod scanner;
 mod service;
 mod sync;
@@ -155,7 +156,7 @@ enum Commands {
         #[arg(short = 'c', long, default_value_t = 50)]
         concurrency: usize,
 
-        /// Output as JSON array (for mc-targets.json)
+        /// Output as JSON array (for targets-template.json)
         #[arg(long)]
         json: bool,
     },
@@ -359,7 +360,7 @@ enum Commands {
     /// Designed for Arch node — low concurrency, long delays between rounds
     #[command(visible_alias = "mcc")]
     McCrawl {
-        /// Path to mc-targets.json (default: ./data/mc-targets.json)
+        /// Path to targets-template.json (default: ./data/targets-template.json)
         #[arg(long)]
         targets: Option<String>,
 
@@ -1199,7 +1200,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Some(Commands::McCrawl { targets, ports, concurrency, round_delay, port_delay_ms }) => {
-            let targets_path = targets.unwrap_or_else(|| "./data/mc-targets.json".to_string());
+            let targets_path = targets.unwrap_or_else(|| "./data/targets-template.json".to_string());
             
             let mut port_ranges = Vec::new();
             for part in ports.split(',') {

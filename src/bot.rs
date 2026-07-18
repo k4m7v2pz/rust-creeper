@@ -9,11 +9,12 @@ struct BotSessionListener {
     bot_name: String,
     auto_register: bool,
     connected: Arc<AtomicBool>,
+    command_tx: Option<tokio::sync::mpsc::Sender<BotCommand>>,
 }
 
 impl BotSessionListener {
-    fn new(bot_name: String, auto_register: bool) -> Self {
-        Self { bot_name, auto_register, connected: Arc::new(AtomicBool::new(false)) }
+    fn new(bot_name: String, auto_register: bool, command_tx: Option<tokio::sync::mpsc::Sender<BotCommand>>) -> Self {
+        Self { bot_name, auto_register, connected: Arc::new(AtomicBool::new(false)), command_tx }
     }
 }
 
@@ -26,7 +27,11 @@ impl SessionListener for BotSessionListener {
         self.connected.store(true, Ordering::SeqCst);
         log::info!("[{}] Joined", self.bot_name);
         if self.auto_register {
-            log::info!("[{}] Auto-register enabled", self.bot_name);
+            log::info!("[{}] Auto-register: sending /register and /login", self.bot_name);
+            if let Some(ref tx) = self.command_tx {
+                let _ = tx.try_send(BotCommand::SendMessage("/register password123".into()));
+                let _ = tx.try_send(BotCommand::SendMessage("/login password123".into()));
+            }
         }
     }
     fn on_chat_message(&self, msg: &str) { log::info!("[{}] {}", self.bot_name, msg); }
@@ -58,6 +63,7 @@ impl Bot {
         let max_attempts = options.max_attempts;
         let bot_name_clone = bot_name.clone();
         let (tx, mut rx) = tokio::sync::mpsc::channel::<BotCommand>(64);
+        let tx_clone = tx.clone(); // clone before moving tx into the spawn
         let connected = Arc::new(AtomicBool::new(false));
         let conn = connected.clone();
         let host = options.hostname.clone();
@@ -77,7 +83,7 @@ impl Bot {
                     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 }
 
-                let listener = Arc::new(BotSessionListener::new(bot_name_clone.clone(), auto_register));
+                let listener = Arc::new(BotSessionListener::new(bot_name_clone.clone(), auto_register, Some(tx.clone())));
                 let connected2 = listener.connected.clone();
                 let mut session = protocol.connect(&host, port, proxy.as_ref(), listener);
                 conn.store(true, Ordering::SeqCst);
@@ -111,7 +117,7 @@ impl Bot {
             }
         });
 
-        BotHandle { _name: bot_name, session_tx: tx, _connected: connected }
+        BotHandle { _name: bot_name, session_tx: tx_clone, _connected: connected }
     }
 
     pub fn command_identifier() -> char { COMMAND_IDENTIFIER }
