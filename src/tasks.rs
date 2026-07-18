@@ -157,7 +157,7 @@ impl TaskQueue {
         }
     }
 
-    pub fn enqueue(&mut self, mut task: Task) {
+    pub fn enqueue(&mut self, task: Task) {
         let id = task.id.clone();
         self.tasks.insert(id.clone(), task);
         self.pending.push_back(id);
@@ -178,7 +178,7 @@ impl TaskQueue {
         None
     }
 
-    pub fn update(&mut self, mut task: Task) {
+    pub fn update(&mut self, task: Task) {
         let id = task.id.clone();
         let status = task.status.clone();
         self.tasks.insert(id, task);

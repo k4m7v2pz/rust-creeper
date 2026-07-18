@@ -40,5 +40,5 @@ struct StubSession { username: String, connected: bool }
 impl BotSession for StubSession {
     fn is_connected(&self) -> bool { self.connected }
     fn send_chat(&mut self, msg: &str) { log::info!("[{}] Chat (stub): {}", self.username, msg); }
-    fn disconnect(&mut self, reason: &str) { self.connected = false; }
+    fn disconnect(&mut self, _reason: &str) { self.connected = false; }
 }

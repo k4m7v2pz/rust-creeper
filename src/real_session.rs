@@ -108,7 +108,7 @@ fn packet_ids(version: GameVersion) -> Option<VersionPackets> {
 /// A real Minecraft bot session that connects to a server via TCP,
 /// performs the login handshake, and keeps the connection alive.
 pub struct RealSession {
-    username: String,
+    _username: String,
     writer: Option<Arc<Mutex<OwnedWriteHalf>>>,
     connected: Arc<AtomicBool>,
     listener: Option<Arc<dyn SessionListener>>,
@@ -233,7 +233,7 @@ impl RealSession {
     async fn reader_loop(
         mut reader: OwnedReadHalf,
         writer: Arc<Mutex<OwnedWriteHalf>>,
-        username: String,
+        _username: String,
         packets: VersionPackets,
         connected: Arc<AtomicBool>,
         listener: Arc<dyn SessionListener>,

