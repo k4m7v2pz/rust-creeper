@@ -9,11 +9,11 @@
 //!   Periodically push / pull journal to/from a Hub.
 
 use crate::motd::PlayerJournal;
-use crate::tasks::{self, Task, TaskQueue, TaskResult, TaskStatus, TaskType};
+use crate::tasks::{self, Task, TaskQueue, TaskResult, TaskType};
 use crate::host::HostReport;
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, Path, Query, State},
+    extract::{ConnectInfo, State},
     http::{HeaderMap, header},
     response::IntoResponse,
     routing::{get, post, put},

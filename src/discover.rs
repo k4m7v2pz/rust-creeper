@@ -177,7 +177,7 @@ pub async fn discover(
 
     for (host, port_list) in by_host {
         let sem = sem.clone();
-        let ports = ports.to_vec(); // for logging
+        let _ports = ports.to_vec()(); // for logging
         let done_ref = Arc::clone(&done);
         handles.push(tokio::spawn(async move {
             let _guard = sem.acquire().await;

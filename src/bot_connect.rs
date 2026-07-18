@@ -20,7 +20,7 @@ use uuid::Uuid;
 const SEGMENT_BITS: u32 = 0x7F;
 const CONTINUE_BIT: u32 = 0x80;
 
-pub fn write_varint(buf: &mut Vec<u8>, mut value: i32) {
+pub fn write_varint(buf: &mut Vec<u8>, value: i32) {
     let mut value = value as u32;
     loop {
         if (value & !SEGMENT_BITS) == 0 {
