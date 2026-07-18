@@ -53,7 +53,7 @@ Agent 在执行 `git commit` 前必须：
 - 空行后正文：要点列表，说明做了什么、为什么
 - 末尾 trailer（空行隔开）：
   ```
-  Co-Authored-By: AtomCode (GLM-5.2) <noreply@atomgit.com>
+  Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
   ```
 - 用 `git commit -m "$(cat <<'EOF' ... EOF)"` heredoc 保空行；`--amend` / `revert` 不加 trailer
 
