@@ -17,7 +17,6 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 
 use crate::motd;
-use crate::config::Config;
 
 // ---------------------------------------------------------------------------
 // Tabs
