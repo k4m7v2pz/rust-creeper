@@ -13,10 +13,11 @@ use crossterm::{cursor, execute, terminal};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 
 use crate::motd;
+use crate::config::Config;
 
 // ---------------------------------------------------------------------------
 // Tabs
@@ -27,10 +28,11 @@ enum Tab {
     Monitor,
     Flood,
     Journal,
+    Nodes,
     About,
 }
 
-const TABS: &[Tab] = &[Tab::Monitor, Tab::Flood, Tab::Journal, Tab::About];
+const TABS: &[Tab] = &[Tab::Monitor, Tab::Flood, Tab::Journal, Tab::Nodes, Tab::About];
 
 impl Tab {
     fn label(&self) -> &'static str {
@@ -38,6 +40,7 @@ impl Tab {
             Self::Monitor => " Monitor ",
             Self::Flood => " Flood ",
             Self::Journal => " Journal ",
+            Self::Nodes => " Nodes ",
             Self::About => " About ",
         }
     }
@@ -61,12 +64,20 @@ struct App {
     port: u16,
     /// Log buffer
     logs: Vec<String>,
+    /// Hub URL for node data
+    hub_url: String,
+    /// Cached node data (JSON string, refreshed periodically)
+    node_data: String,
+    /// Last node data refresh
+    last_node_refresh: Instant,
+    /// Node refresh interval (seconds)
+    node_refresh_interval: u64,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(hub_url: &str) -> Self {
         Self {
-            tab: Tab::About,
+            tab: Tab::Nodes,
             should_quit: false,
             last_result: None,
             last_ping: Instant::now(),
@@ -74,38 +85,55 @@ impl App {
             host: String::new(),
             port: 0,
             logs: vec![],
+            hub_url: hub_url.to_string(),
+            node_data: String::new(),
+            last_node_refresh: Instant::now(),
+            node_refresh_interval: 10,
         }
     }
 
     fn tick(&mut self) {
         // Ping only when an interval is configured and a server is set
-        if self.ping_interval == 0 || self.host.is_empty() {
-            return;
+        if self.ping_interval > 0 && !self.host.is_empty() {
+            if self.last_ping.elapsed() > Duration::from_secs(self.ping_interval) {
+                self.last_ping = Instant::now();
+                let host = self.host.clone();
+                let port = self.port;
+                let result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        motd::ping(&host, port, -1, false)
+                    })
+                });
+
+                if !result.info.motd.is_empty() {
+                    let log = format!(
+                        "{} {} {}/{}",
+                        result.info.game_version,
+                        result.info.motd,
+                        result.info.players_online,
+                        result.info.players_max,
+                    );
+                    self.logs.push(log);
+                    if self.logs.len() > 100 {
+                        self.logs.remove(0);
+                    }
+                }
+                self.last_result = Some(result);
+            }
         }
-        if self.last_ping.elapsed() > Duration::from_secs(self.ping_interval) {
-            self.last_ping = Instant::now();
-            let host = self.host.clone();
-            let port = self.port;
+
+        // Refresh node data periodically
+        if !self.hub_url.is_empty()
+            && self.last_node_refresh.elapsed() > Duration::from_secs(self.node_refresh_interval)
+        {
+            self.last_node_refresh = Instant::now();
+            let url = self.hub_url.clone();
             let result = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    motd::ping(&host, port, -1, false)
+                    fetch_node_data(&url).await
                 })
             });
-
-            if !result.info.motd.is_empty() {
-                let log = format!(
-                    "{} {} {}/{}",
-                    result.info.game_version,
-                    result.info.motd,
-                    result.info.players_online,
-                    result.info.players_max,
-                );
-                self.logs.push(log);
-                if self.logs.len() > 100 {
-                    self.logs.remove(0);
-                }
-            }
-            self.last_result = Some(result);
+            self.node_data = result;
         }
     }
 }
@@ -173,6 +201,7 @@ fn render_body(f: &mut Frame, area: Rect, app: &App) {
         Tab::Monitor => render_monitor_tab(f, area, app),
         Tab::Flood => render_flood_tab(f, area, app),
         Tab::Journal => render_journal_tab(f, area, app),
+        Tab::Nodes => render_nodes_tab(f, area, app),
         Tab::About => render_about_tab(f, area, app),
     }
 }
@@ -314,6 +343,155 @@ fn render_about_tab(f: &mut Frame, area: Rect, _app: &App) {
     f.render_widget(p, inner);
 }
 
+/// Fetch node data from the Hub API: combined journal stats + host probes.
+async fn fetch_node_data(hub_url: &str) -> String {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build().ok();
+
+    let client = match client {
+        Some(c) => c,
+        None => return "Failed to create HTTP client".into(),
+    };
+
+    let base = hub_url.trim_end_matches('/');
+
+    // Fetch journal stats, host report, and status in parallel
+    let journal_fut = client.get(format!("{base}/journal")).send();
+    let host_fut = client.get(format!("{base}/host-report")).send();
+    let status_fut = client.get(format!("{base}/status")).send();
+
+    let (journal_resp, host_resp, status_resp) = tokio::join!(journal_fut, host_fut, status_fut);
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Status
+    match status_resp {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                parts.push("── Hub Status ──".into());
+                if let Some(players) = body.get("total_players").and_then(|v| v.as_u64()) {
+                    parts.push(format!("  Total players recorded: {players}"));
+                }
+                if let Some(servers) = body.get("total_servers").and_then(|v| v.as_u64()) {
+                    parts.push(format!("  Total servers discovered: {servers}"));
+                }
+                parts.push("".into());
+            }
+        }
+        _ => {}
+    }
+
+    // Journal
+    match journal_resp {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                let players = body.get("players").and_then(|v| v.as_object());
+                if let Some(p) = players {
+                    parts.push(format!("── Journal: {} servers ──", p.len()));
+                    // Count total unique players
+                    let total_players: usize = p.values()
+                        .filter_map(|v| v.as_array())
+                        .map(|a| a.len())
+                        .sum();
+                    parts.push(format!("  Total entries: {total_players}"));
+
+                    // Breakdown by player count
+                    let zero = p.values().filter(|v| v.as_array().map_or(true, |a| a.is_empty())).count();
+                    let active = p.len() - zero;
+                    parts.push(format!("  Active servers (with players): {active}"));
+                    parts.push(format!("  Empty servers: {zero}"));
+
+                    // Top 5 servers by player count
+                    let mut servers: Vec<(&String, usize)> = p.iter()
+                        .map(|(k, v)| (k, v.as_array().map_or(0, |a| a.len())))
+                        .collect();
+                    servers.sort_by(|a, b| b.1.cmp(&a.1));
+                    parts.push("".into());
+                    parts.push("  Top servers:".into());
+                    for (srv, count) in servers.iter().take(5) {
+                        parts.push(format!("    {srv}: {count} players"));
+                    }
+                }
+            }
+        }
+        Ok(resp) => {
+            parts.push(format!("  Journal API returned: {}", resp.status()));
+        }
+        Err(e) => {
+            parts.push(format!("  Journal fetch failed: {e}"));
+        }
+    }
+
+    // Host probes
+    parts.push("".into());
+    match host_resp {
+        Ok(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if let Some(arr) = body.as_array() {
+                    parts.push(format!("── Host Probes: {} nodes ──", arr.len()));
+                    for probe in arr.iter().take(5) {
+                        let hostname = probe.get("hostname").and_then(|v| v.as_str()).unwrap_or("?");
+                        let cpu = probe.get("cpu_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let ram_used = probe.get("ram_used_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let ram_total = probe.get("ram_total_bytes").and_then(|v| v.as_u64()).unwrap_or(1);
+                        let uptime = probe.get("uptime_secs").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let ram_pct = ram_used as f64 / ram_total as f64 * 100.0;
+                        let uptime_h = uptime / 3600;
+                        parts.push(format!("    {hostname}: CPU {cpu:.1}%  RAM {ram_pct:.0}%  up {uptime_h}h"));
+                    }
+                    if arr.len() > 5 {
+                        parts.push(format!("    ... and {} more", arr.len() - 5));
+                    }
+                }
+            }
+        }
+        Ok(resp) => {
+            parts.push(format!("  Host API returned: {}", resp.status()));
+        }
+        Err(e) => {
+            parts.push(format!("  Host fetch failed: {e}"));
+        }
+    }
+
+    parts.join("\n")
+}
+
+/// Render the Nodes tab — shows hub, journal, and host probe data.
+fn render_nodes_tab(f: &mut Frame, area: Rect, app: &App) {
+    let block = Block::default()
+        .title(format!(" Nodes — Hub: {} ", app.hub_url))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Blue));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if app.node_data.is_empty() {
+        let p = Paragraph::new("Connecting to hub...")
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(p, inner);
+    } else {
+        let lines: Vec<Line> = app.node_data.lines()
+            .map(|l| {
+                let style = if l.starts_with("──") {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else if l.starts_with("  Top") || l.starts_with("  Active") || l.starts_with("  Empty") {
+                    Style::default().fg(Color::Yellow)
+                } else if l.contains("error") || l.contains("failed") {
+                    Style::default().fg(Color::Red)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                Line::from(Span::styled(l, style))
+            })
+            .collect();
+        let p = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(Color::White));
+        f.render_widget(p, inner);
+    }
+}
+
 fn render_footer(f: &mut Frame, area: Rect) {
     let footer = Paragraph::new(Line::from(Span::styled(
         " Tab/← →: switch  Ctrl+C: quit ",
@@ -328,8 +506,9 @@ fn render_footer(f: &mut Frame, area: Rect) {
 // ---------------------------------------------------------------------------
 
 /// Run the TUI dashboard.
-pub async fn run_tui(_remote: Option<&str>) -> Result<()> {
-    let mut app = App::new();
+pub async fn run_tui(hub_url: Option<&str>) -> Result<()> {
+    let hub = hub_url.unwrap_or("http://127.0.0.1:9090").to_string();
+    let mut app = App::new(&hub);
 
     // Set up terminal
     terminal::enable_raw_mode()?;
