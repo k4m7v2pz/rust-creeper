@@ -221,7 +221,7 @@ impl RealSession {
         listener.on_join();
 
         Some(Self {
-            username: username.to_string(),
+            _username: username.to_string(),
             writer: Some(writer),
             connected,
             listener: Some(listener),
