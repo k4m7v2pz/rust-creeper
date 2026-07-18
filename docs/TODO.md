@@ -63,12 +63,12 @@
 
 ### 功能增强
 
-- [ ] **TUI**（ratatui）— 实时仪表盘：bot 数量、延迟、在线状态、日志
-- [ ] **REST API**（axum）— WebUI 控制端
-- [ ] **昵称生成器** — 参考 `reference/mc-bots-ref/NickGenerator.java`
+- [x] **TUI**（ratatui）— 实时仪表盘：bot 数量、延迟、在线状态、日志（`creeper tui`）
+- [x] **REST API**（axum）— Hub 服务端已实现（`creeper hub-serve`）
+- [x] **服务器信息探测** — MOTD 渲染、玩家数、版本、延迟（`creeper mc-info`）
+- [x] **昵称生成器** — 参考 `reference/mc-bots-ref/NickGenerator.java`
 - [ ] **自动重生** — `auto_respawn_delay_ms` 已配但未实现
 - [ ] **加入命令** — `join_commands` 已配但未实现
-- [ ] **服务器信息探测** — MOTD 渲染、玩家数、版本、延迟
 
 ### 工程化
 

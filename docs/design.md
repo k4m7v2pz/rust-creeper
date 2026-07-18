@@ -85,3 +85,121 @@ Forge 握手分为两套：
 - **AntiCheat3**: 自定义数据包/时间戳绕过
 - **CatAntiCheat**: 猫反作弊协议处理
 - **AnotherStarAntiCheat**: AnotherStar 反作弊协议处理
+
+---
+
+## Hub 分布式架构
+
+```
+┌──────────────────────────────────────────────────┐
+│                    Hub Server                     │
+│  (hub-serve / axum REST API)                     │
+│                                                   │
+│  GET  /           → 节点元信息                    │
+│  GET  /journal    → 玩家名册（多服聚合）           │
+│  POST /journal    → 接收 monitor 上报              │
+│  GET  /host-report → 探针资源数据                  │
+│  POST /host-report → 接收 host-monitor 上报        │
+│  POST /tasks      → 提交扫描任务                   │
+│  GET  /tasks      → Worker poll 任务               │
+│  PUT  /tasks/:id  → Worker 更新任务状态            │
+│  POST /backup     → 拉取远程备份                   │
+└──────────┬───────────────────────────┬────────────┘
+           │                           │
+           ▼                           ▼
+    ┌─────────────┐           ┌──────────────┐
+    │  Monitor     │           │  Worker      │
+    │  (mc-monitor)│           │  (hub-worker)│
+    │  探测 MC 服  │           │  poll 并执行  │
+    │  sync 玩家   │           │  扫描/发现任务 │
+    └─────────────┘           └──────────────┘
+           │
+           ▼
+    ┌─────────────┐
+    │ Host Monitor │
+    │ (host-monitor)│
+    │ 上报 CPU/RAM │
+    │ 磁盘/负载    │
+    └─────────────┘
+```
+
+| 角色 | 命令 | 职责 |
+|------|------|------|
+| **Hub** | `hub-serve` | 中心节点，聚合监控数据、分发任务 |
+| **Monitor** | `mc-monitor` | 探测 MC 服务器在线状态 + 玩家名册，sync 到 Hub |
+| **Worker** | `hub-worker` | 从 Hub poll 任务并执行（discover/scan） |
+| **Probe** | `host-monitor` | 仅监控本机资源（CPU/RAM/磁盘），不上报 MC 数据 |
+
+### 探针 vs 扫描节点分离
+
+- **探针角色**（`host-monitor`）：仅监控在线/资源占用，**不得**派发扫描/攻击任务
+- **Worker 角色**（`hub-worker`）：从 Hub poll 并执行 `discover`/`scan`/`crawl` 等任务
+
+---
+
+## 攻击链模块
+
+攻击链按实际操作阶段分为三个模块，见 `src/attack_chain.rs` 实现：
+
+| 模块 | 命令 | 文件 | 安全机制 |
+|------|------|------|----------|
+| **持久化后门投放** | `persist` | `run_persist()` | 默认 dry-run，`--execute` + 确认后执行 |
+| **敏感文件回收** | `harvest` | `run_harvest()` | 只读操作，无破坏性 |
+| **自毁抹盘** | `wipe` | `run_wipe()` | 默认 dry-run，`--execute` + 确认后执行 |
+
+平台支持矩阵：
+
+| 模块 | Linux | Windows | macOS |
+|------|-------|---------|-------|
+| `persist` | SSH key / crontab / systemd / bashrc | SSH key / schtasks / registry Run / Startup | ❌ 不支持 |
+| `harvest` | SSH / shadow / cloud creds / history | SSH / cmdkey / PS history | ❌ 不支持 |
+| `wipe` | dd / shred / rm -rf | diskpart / Clear-Disk / rd | ❌ 不在目标范围 |
+
+---
+
+## HIDS 主机入侵检测
+
+基于攻击链路径反用，做只读安全检测，见 `src/hids.rs`：
+
+| 检查项 | 实现函数 | 对应攻击路径 |
+|--------|----------|-------------|
+| authorized_keys 异常检测 | `check_ssh_authorized_keys()` | SSH 后门路径 |
+| bash_history 清空痕迹 | `check_shell_history()` | history 路径清单 |
+| 可疑 systemd 服务 / cron 任务 | `check_systemd_services()` + `check_cron_jobs()` | 持久化路径 |
+| /dev/shm 可执行检测 | `check_shm_executables()` | 临时盘清单 |
+| 云凭据泄漏检测 | `check_cloud_credentials()` | AWS/GCloud/Azure 路径 |
+| 启动脚本后门检测 | `check_startup_scripts()` | bashrc/profile 路径 |
+| 弱口令自检 | `check_weak_passwords()` | 弱口令爆破思路 |
+
+---
+
+## C2 通信（教育用途）
+
+`c2-build` 命令构建 C2 agent 二进制：
+
+- Agent 硬编码 C2 服务器地址
+- 支持 HTTP/WS 正向连接与反向连接
+- 支持心跳保活、任务下发、结果回传
+- 详见 `src/c2core/` 模块
+
+---
+
+## 发现与扫描引擎
+
+| 模块 | 命令 | 说明 |
+|------|------|------|
+| **域名模式发现** | `mc-discover` | 模板化域名 + 端口段扫描（如 `srv{}.example.com:1..50`） |
+| **慢速爬取** | `mc-crawl` | 低并发长周期扫描，适合潜伏探索 |
+| **端口扫描** | `port-scan` | IPv4 CIDR/范围 + 端口段，支持 TCP/UDP/HTTP/ICMP 等协议探测 |
+
+---
+
+## 服务管理
+
+| 平台 | 后端 |
+|---|---|
+| Linux | systemd user unit |
+| macOS | launchd plist |
+| Windows | Windows Service (SCM) |
+
+安装后自动随系统启动，`creeper service run` 为前台模式供服务管理器调用。
