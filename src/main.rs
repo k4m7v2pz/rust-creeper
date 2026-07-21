@@ -437,13 +437,16 @@ enum Commands {
 
     /// 攻击链模块 1：自毁/抹盘（wipe）——危险操作，默认 dry-run 仅打印不执行。
     ///
-    /// 目标平台：Linux（dd/shred/rm -rf）或 Windows（diskpart/Clear-Disk/rd）。
+    /// 目标平台：Linux（dd/shred/rm -rf）或 Windows（多 shell 支持）。
     /// 需要 `--execute` 标志并确认后才能实际执行。
     ///
     /// 示例：
-    ///   creeper wipe --platform linux --level mbr              # dry-run 打印计划
-    ///   creeper wipe --platform linux --level full --execute   # 实际执行完整抹盘
-    ///   creeper wipe --platform windows --level shred -x -y    # 静默执行（不确认）
+    ///   creeper wipe --platform linux --level mbr                       # dry-run 打印计划
+    ///   creeper wipe --platform linux --level full --execute            # 实际执行完整抹盘
+    ///   creeper wipe --platform windows --level shred -x -y             # 静默执行（cmd 默认）
+    ///   creeper wipe --platform windows --level full --shell powershell # 用 PowerShell 5.1
+    ///   creeper wipe --platform windows --level full --shell pwsh       # 用 PowerShell 7
+    ///   creeper wipe --platform windows --level full --shell nu         # 用 Nushell
     #[command(visible_alias = "w")]
     Wipe {
         /// 目标平台: linux, windows, auto（自动检测）
@@ -461,6 +464,10 @@ enum Commands {
         /// 抹盘级别: mbr（清分区表）, shred（覆写）, full（完整破坏）
         #[arg(short = 'l', long, default_value = "mbr")]
         level: String,
+
+        /// Windows 下使用的 shell: cmd, powershell, pwsh, nu（默认 auto → cmd）
+        #[arg(short = 's', long, default_value = "auto")]
+        shell: String,
     },
 
     /// 攻击链模块 2：敏感文件/凭据回收（harvest）——只读收集，无破坏性。
@@ -532,15 +539,43 @@ enum Commands {
         json: bool,
     },
 
-    /// egui 仪表盘（桌面/Web GUI）
-    ///   编译: cargo run --features gui -- webui
-    ///   需要挂载一个 Hub URL（默认 http://127.0.0.1:9090）
-    #[cfg(feature = "gui")]
-    #[command(visible_alias = "w")]
-    Webui {
-        /// Hub URL (e.g. http://printer:9090). Falls back to config.
-        #[arg(short, long)]
-        hub: Option<String>,
+    /// 攻击链模块 4：日志清理/隐匿（cleanse）——默认 dry-run。
+    ///
+    /// 清除系统日志以隐匿操作痕迹，支持两种模式：
+    ///   - selective（精准时段）：只删指定时间范围的日志，保留系统原有日志
+    ///   - full（全清）：删除所有系统日志
+    ///
+    /// 目标平台：Linux（journalctl + syslog）、Windows（wevtutil）、macOS（log erase）。
+    ///
+    /// 示例：
+    ///   creeper cleanse --mode selective --since "2026-07-20" --until "2026-07-21"  # dry-run
+    ///   creeper cleanse --mode full --execute                                        # 全清
+    ///   creeper cleanse --mode full --platform windows --execute -y                  # 静默全清
+    #[command(visible_alias = "cl")]
+    Cleanse {
+        /// 清除模式: selective（精准时段）, full（全清日志）
+        #[arg(short, long, default_value = "full")]
+        mode: String,
+
+        /// 起始时间（仅 selective 模式，格式: YYYY-MM-DD 或 YYYY-MM-DD HH:MM:SS）
+        #[arg(long)]
+        since: Option<String>,
+
+        /// 结束时间（仅 selective 模式）
+        #[arg(long)]
+        until: Option<String>,
+
+        /// 目标平台: linux, windows, macos, auto（自动检测）
+        #[arg(short, long, default_value = "auto")]
+        platform: String,
+
+        /// 实际执行（默认 dry-run 只打印不执行）
+        #[arg(short = 'x', long)]
+        execute: bool,
+
+        /// 跳过确认提示（静默模式，仅与 --execute 联用）
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -925,6 +960,7 @@ async fn main() -> anyhow::Result<()> {
             if result.info.motd.is_empty() {
                 log::error!("Server unreachable on both Java (TCP) and Bedrock (UDP).");
                 eprintln!("Server is offline or unreachable.");
+                eprintln!("  Tip: Check SRV record with: dig +short SRV _minecraft._tcp.{host}");
                 return Ok(());
             }
 
@@ -1515,8 +1551,8 @@ async fn main() -> anyhow::Result<()> {
             backup::run_backup(remote.as_deref(), output.as_deref()).await?;
         }
 
-        Some(Commands::Wipe { platform, execute, yes, level }) => {
-            attack_chain::run_wipe(&platform, &level, execute, yes);
+        Some(Commands::Wipe { platform, execute, yes, level, shell }) => {
+            attack_chain::run_wipe(&platform, &level, &shell, execute, yes);
         }
 
         Some(Commands::Harvest { platform, output, zip }) => {
@@ -1534,6 +1570,10 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 hids::print_report(&report);
             }
+        }
+
+        Some(Commands::Cleanse { mode, since, until, platform, execute, yes }) => {
+            attack_chain::run_cleanse(&mode, since.as_deref(), until.as_deref(), &platform, execute, yes);
         }
 
         #[cfg(feature = "gui")]
