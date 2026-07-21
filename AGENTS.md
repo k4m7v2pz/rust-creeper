@@ -126,6 +126,7 @@ Agent 在执行 `git commit` 前必须：
 - **不引入重依赖**：如非必要不拉大依赖；schema 校验改用轻量手写 + 静态 schema 供外部工具。
 - **commit 前核对暂存区**：按本文件"脱敏政策"第 3 条执行。
 - **远端部署前**：交叉编译产物在本地 `cargo check --target x86_64-unknown-linux-musl` 过再 scp；systemd unit 装好后 `systemctl status` 验证不报错才算部署完成。
+- **破坏性操作安全规范**：`creeper wipe` 的 `--execute` 标志会执行真实抹盘/删文件命令（`rm -rf /*`、`diskpart clean all`、`Remove-Item C:\*` 等），**开发期间严禁运行 `--execute`**，否则立刻破坏本机数据。`cargo check` / `cargo test` 是安全的（不会触发 wipe 执行），但不要手动 `cargo run -- wipe --execute` 来"测试"。所有 wipe 相关的代码变更必须人工审查命令字符串，确保无意外泄漏。
 
 ### F. 数据源架构（Agent 新会话如何获取实时数据）
 

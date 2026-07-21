@@ -58,3 +58,4 @@ DEPLOY.md
 # Scripts — browser automation, downloaded artifacts
 scripts/
 report.html
+.atomcode/
