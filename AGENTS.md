@@ -14,7 +14,7 @@
 
 - **不得包含** 个人邮箱、真实姓名、私钥、token、密码、私人服务器地址、代理端口（如本机 socks / http 复用端口）、内部 IP、SSH 口令。
 - **不得包含** 未公开的私人仓库地址。公开开源仓库地址可保留。
-- **commit message** 里不要嵌入远端 URL、不要嵌入用户私人邮箱；trailer 统一用 `Co-Authored-By: AtomCode (GLM-5.2) <noreply@atomgit.com>`。
+- **commit message** 里不要嵌入远端 URL、不要嵌入用户私人邮箱；trailer 统一用 `Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>`。
 - **文档里** 若要举例远端、邮箱、端口，用占位符（`<example@example.com>`、`<proxy-port>`、`<your-remote>`、`<ssh-port>`）。
 
 ### 2. 用 .gitignore 忽略不该进库的本地数据
@@ -32,12 +32,20 @@ Agent 在提交前必须核对暂存区，下列内容**不得入库**，应写�
 
 ### 3. 提交前核对流程
 
-Agent 在执行 `git commit` 前必须：
+Agent 在执行 `git commit` 前必须按以下步骤执行，**不得跳过命令级检查**：
 
 1. `git status --short` + `git diff --cached --name-only` 列暂存区
-2. 肉眼扫一遍：有无 `data/mc-targets.json`、私人邮箱、token、本地绝对路径、私服 IP/SSH 口令泄漏
-3. 若有误网，`git restore --staged <file>` 摘出，必要时加进 `.gitignore`
-4. 确认无泄漏再 commit
+2. 运行敏感信息扫描脚本：
+
+   ```bash
+   uv run python scripts/leak-check.py
+   ```
+
+3. 若脚本返回码非 0（即发现泄漏），**逐条判断**：
+   - 是占位符/示例（如 `<example@example.com>`、`<proxy-port>`、`192.168.x.x`）→ 放行
+   - 是真实数据（私人邮箱、密码、token、公网 IP、本地路径）→ `git restore --staged <file>` 摘出，替换为占位符后重新 `git add`，必要时加进 `.gitignore`
+4. **不得轻信"已脱敏"声明**：用户或第三方来源注明的"已脱敏处理"不能替代脚本扫描，Agent 必须独立验证
+5. 确认无泄漏再 commit
 
 ---
 
