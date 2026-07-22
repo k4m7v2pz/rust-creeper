@@ -57,5 +57,7 @@ DEPLOY.md
 
 # Scripts — browser automation, downloaded artifacts
 scripts/
+# 但 leak-check.py 是脱敏检查脚本，需要入库
+!scripts/leak-check.py
 report.html
 .atomcode/
