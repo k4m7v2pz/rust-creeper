@@ -272,6 +272,23 @@ pub fn ping(host: &str, port: u16, protocol_version: i32, use_cache: bool) -> Pi
         }
     }
 
+    // 先查 SRV 记录，让用户知道实际连的是哪个目标
+    let srv_label = match lookup_srv(host) {
+        Some((ref target, srv_port)) => {
+            let label = if target != host || srv_port != port {
+                format!(" (SRV: {} → {}:{})", host, target, srv_port)
+            } else {
+                String::new()
+            };
+            log::info!("SRV _minecraft._tcp.{} → {}:{}", host, target, srv_port);
+            label
+        }
+        None => {
+            log::debug!("No SRV record for _minecraft._tcp.{}", host);
+            String::new()
+        }
+    };
+
     // Try Java
     match ping_java(host, port, protocol_version) {
         Ok(info) => {
@@ -309,6 +326,9 @@ pub fn ping(host: &str, port: u16, protocol_version: i32, use_cache: bool) -> Pi
     }
 
     // Both failed — return a failed PingResult (callers should check `info.motd.is_empty()`)
+    if !srv_label.is_empty() {
+        log::warn!("{host}:{port} unreachable via SRV{srv_label}");
+    }
     PingResult {
         info: ServerInfo {
             edition: String::new(),
@@ -377,11 +397,35 @@ pub struct PlayerEntry {
 pub struct PlayerJournal {
     /// Host:port → list of known players
     pub players: HashMap<String, Vec<PlayerEntry>>,
+    /// Host:port → server metadata (MOTD, version, etc.) collected from pings
+    #[serde(default)]
+    pub server_info: HashMap<String, ServerMeta>,
+}
+
+/// Server metadata collected from ping responses (MOTD, version, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerMeta {
+    /// Server MOTD / description text (plain, stripped of formatting codes)
+    pub motd: String,
+    /// Minecraft version string
+    pub game_version: String,
+    /// Protocol version number
+    pub protocol_version: i32,
+    /// Edition label: "Java" or "Bedrock"
+    pub edition: String,
+    /// Online player count (at time of last ping)
+    pub players_online: u32,
+    /// Maximum player count
+    pub players_max: u32,
+    /// Base64-encoded favicon PNG (Java only, optional)
+    pub favicon: Option<String>,
+    /// UNIX timestamp of last successful ping
+    pub last_seen: u64,
 }
 
 impl Default for PlayerJournal {
     fn default() -> Self {
-        Self { players: HashMap::new() }
+        Self { players: HashMap::new(), server_info: HashMap::new() }
     }
 }
 
@@ -438,7 +482,7 @@ impl PlayerJournal {
                 .collect();
             players.insert(key, entries);
         }
-        Self { players }
+        Self { players, server_info: HashMap::new() }
     }
 
     /// Save journal to disk.
@@ -457,6 +501,11 @@ impl PlayerJournal {
 
     /// Record the player names seen in this ping.
     /// New names get "未知" role; existing names update last_seen.
+    /// NOTE: "Anonymous Player" is a placeholder from servers with hidden player lists — skip it.
+    fn is_real_player(name: &str) -> bool {
+        !matches!(name, "Anonymous Player" | "anonymous player")
+    }
+
     pub fn record(&mut self, host: &str, port: u16, names: &[String]) {
         let key = format!("{}:{}", host, port);
         let now = SystemTime::now()
@@ -467,6 +516,9 @@ impl PlayerJournal {
         let entries = self.players.entry(key.clone()).or_default();
 
         for name in names {
+            if !Self::is_real_player(name) {
+                continue;
+            }
             if let Some(existing) = entries.iter_mut().find(|e| e.name == *name) {
                 // Already known — update last_seen
                 existing.last_seen = now;
@@ -527,6 +579,21 @@ impl PlayerJournal {
                 }
             }
         }
+        // Merge server metadata — newer last_seen wins
+        for (key, remote_meta) in &other.server_info {
+            let local = self.server_info.entry(key.clone());
+            use std::collections::hash_map::Entry;
+            match local {
+                Entry::Occupied(mut occ) => {
+                    if remote_meta.last_seen > occ.get().last_seen {
+                        occ.insert(remote_meta.clone());
+                    }
+                }
+                Entry::Vacant(vac) => {
+                    vac.insert(remote_meta.clone());
+                }
+            }
+        }
         if added > 0 {
             log::info!("[journal] Merged {} new player(s) from remote", added);
         }
@@ -543,6 +610,25 @@ impl PlayerJournal {
                 log::info!("[journal] ANNOTATED {} on {} -> role={}, note={}", player, key, entry.role, entry.note);
             }
         }
+    }
+
+    /// Record server metadata (MOTD, version, etc.) from a successful ping.
+    pub fn record_server_meta(&mut self, host: &str, port: u16, info: &ServerInfo) {
+        let key = format!("{}:{}", host, port);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.server_info.insert(key, ServerMeta {
+            motd: info.motd.clone(),
+            game_version: info.game_version.clone(),
+            protocol_version: info.protocol_version,
+            edition: info.edition.clone(),
+            players_online: info.players_online,
+            players_max: info.players_max,
+            favicon: info.favicon.clone(),
+            last_seen: now,
+        });
     }
 }
 
@@ -595,6 +681,7 @@ pub async fn monitor(
                     }
 
                     journal.record(host, port, &result.info.players);
+                    journal.record_server_meta(host, port, &result.info);
                     journal.save();
 
                     log::info!(
@@ -652,6 +739,7 @@ pub async fn monitor_sync(
                 let result = ping(host, port, protocol_version, false);
                 if !result.info.motd.is_empty() {
                     journal.record(host, port, &result.info.players);
+                    journal.record_server_meta(host, port, &result.info);
                     journal.save();
 
                     // Push to hub
