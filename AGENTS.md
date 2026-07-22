@@ -138,6 +138,7 @@ Agent 在执行 `git commit` 前必须：
 printer (Arch Linux, 24h 在线)  ←── 实时数据源
 ├── Hub API (http://printer:9090 或 localhost:9090)
 │   ├── GET  /journal       → 全部已发现服务器 + 玩家名册（最全）
+│   ├── GET  /servers       → 服务器元数据 (MOTD, 版本, 在线人数等)
 │   ├── GET  /              → 节点元信息 + 端点列表
 │   ├── GET  /status        → 健康检查 + 统计
 │   └── GET  /host-report   → 本机资源探针（CPU/RAM/磁盘）

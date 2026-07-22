@@ -8,7 +8,7 @@
 //! Client mode (`creeper monitor --sync <hub>`, `creeper tui --remote <hub>`):
 //!   Periodically push / pull journal to/from a Hub.
 
-use crate::motd::PlayerJournal;
+use crate::motd::{PlayerJournal, ServerMeta};
 use crate::tasks::{self, Task, TaskQueue, TaskResult, TaskType};
 use crate::host::HostReport;
 use axum::{
@@ -19,7 +19,7 @@ use axum::{
     routing::{get, post, put},
 };
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -54,6 +54,12 @@ pub struct HubState {
 async fn get_journal(State(state): State<Arc<HubState>>) -> Utf8Json<PlayerJournal> {
     let j = state.journal.lock().unwrap();
     Utf8Json(j.clone())
+}
+
+/// GET /servers — 返回服务器元数据 (MOTD, 版本, 在线人数等)
+async fn get_servers(State(state): State<Arc<HubState>>) -> Utf8Json<HashMap<String, ServerMeta>> {
+    let j = state.journal.lock().unwrap();
+    Utf8Json(j.server_info.clone())
 }
 
 async fn post_merge(
@@ -381,6 +387,7 @@ pub async fn run_hub(host: &str, port: u16, target: &str) -> anyhow::Result<()> 
     let app = Router::new()
         .route("/", get(get_root))
         .route("/journal", get(get_journal))
+        .route("/servers", get(get_servers))
         .route("/merge", post(post_merge))
         .route("/status", get(get_status))
         .route("/tasks", get(get_tasks))
@@ -396,6 +403,7 @@ pub async fn run_hub(host: &str, port: u16, target: &str) -> anyhow::Result<()> 
     log::info!("[sync] Hub listening on http://{addr}");
     println!("Creeper Hub listening on http://{addr}");
     println!("  GET  /journal       — full player journal");
+    println!("  GET  /servers       — server metadata (MOTD, version, etc.)");
     println!("  POST /merge         — merge remote journal");
     println!("  GET  /status        — health & stats");
     println!("  POST /tasks         — submit scan task");
