@@ -14,7 +14,7 @@
 
 - **不得包含** 个人邮箱、真实姓名、私钥、token、密码、私人服务器地址、代理端口（如本机 socks / http 复用端口）、内部 IP、SSH 口令。
 - **不得包含** 未公开的私人仓库地址。公开开源仓库地址可保留。
-- **commit message** 里不要嵌入远端 URL、不要嵌入用户私人邮箱；trailer 统一用 `Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>`。
+- **commit message** 里不要嵌入远端 URL、不要嵌入用户私人邮箱；trailer 统一用 `Co-Authored-By: AtomCode <noreply@atomgit.com>`。
 - **文档里** 若要举例远端、邮箱、端口，用占位符（`<example@example.com>`、`<proxy-port>`、`<your-remote>`、`<ssh-port>`）。
 
 ### 2. 用 .gitignore 忽略不该进库的本地数据
@@ -61,7 +61,7 @@ Agent 在执行 `git commit` 前必须按以下步骤执行，**不得跳过命�
 - 空行后正文：要点列表，说明做了什么、为什么
 - 末尾 trailer（空行隔开）：
   ```
-  Co-Authored-By: AtomCode (deepseek-v4-flash) <noreply@atomgit.com>
+  Co-Authored-By: AtomCode <noreply@atomgit.com>
   ```
 - 用 `git commit -m "$(cat <<'EOF' ... EOF)"` heredoc 保空行；`--amend` / `revert` 不加 trailer
 
