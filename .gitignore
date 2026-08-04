@@ -28,6 +28,9 @@ yarn-error.log*
 .ds_store
 Thumbs.db
 
+# macOS AppleDouble metadata files
+._*
+
 # Binary artifacts
 *.jar
 *.class
