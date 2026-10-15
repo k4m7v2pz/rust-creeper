@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# pre-commit —— 提交前敏感信息守卫（由 scripts/bash/check-sensitive.sh 驱动）
+# 通过 `git config core.hooksPath hooks` 启用（见 AGENTS.md）。
+# 命中敏感信息（公网 IP / 密钥路径 / 邮箱 / 私钥内容）时阻断 commit。
+set -u
+repo_root="$(git rev-parse --show-toplevel)"
+exec "$repo_root/scripts/bash/check-sensitive.sh" --staged

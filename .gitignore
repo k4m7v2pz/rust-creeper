@@ -59,8 +59,14 @@ temp/
 DEPLOY.md
 
 # Scripts — browser automation, downloaded artifacts
-scripts/
-# 但 leak-check.py 是脱敏检查脚本，需要入库
+scripts/*
 !scripts/leak-check.py
+!scripts/bash/
+scripts/bash/*
+!scripts/bash/check-sensitive.sh
 report.html
 .atomcode/
+
+# 本地敏感信息（凭据/连接配置，严禁入库；README 反向忽略，保证 clone 后目录存在）
+/secrets/*
+!/secrets/README.md

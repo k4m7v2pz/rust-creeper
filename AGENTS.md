@@ -14,7 +14,7 @@
 
 - **不得包含** 个人邮箱、真实姓名、私钥、token、密码、私人服务器地址、代理端口（如本机 socks / http 复用端口）、内部 IP、SSH 口令。
 - **不得包含** 未公开的私人仓库地址。公开开源仓库地址可保留。
-- **commit message** 里不要嵌入远端 URL、不要嵌入用户私人邮箱；trailer 统一用 `Co-Authored-By: AtomCode <noreply@atomgit.com>`。
+- **commit message** 里不要嵌入远端 URL、不要嵌入用户私人邮箱；trailer 用 `Co-Authored-By`，名字填**实际执行本次提交的 Agent**（见「commit message 规范」，不写死固定名字）。
 - **文档里** 若要举例远端、邮箱、端口，用占位符（`<example@example.com>`、`<proxy-port>`、`<your-remote>`、`<ssh-port>`）。
 
 ### 2. 用 .gitignore 忽略不该进库的本地数据
@@ -34,18 +34,31 @@ Agent 在提交前必须核对暂存区，下列内容**不得入库**，应写�
 
 Agent 在执行 `git commit` 前必须按以下步骤执行，**不得跳过命令级检查**：
 
-1. `git status --short` + `git diff --cached --name-only` 列暂存区
-2. 运行敏感信息扫描脚本：
+1. `git status --short` + `git diff --cached --name-only` 列暂存区，确认无 `secrets/`、`*.pem`、`id_rsa`、`id_ed25519`、`*.key`、`credentials` 等
+2. 运行敏感信息扫描脚本（pre-commit 钩子会自动跑第一道，手动核对时也显式跑一遍）：
 
    ```bash
-   uv run python scripts/leak-check.py
+   scripts/bash/check-sensitive.sh --staged    # 主守卫（与钩子同源）
+   uv run python scripts/leak-check.py         # 补充扫描（覆盖密码/token/本地路径等模式）
    ```
 
 3. 若脚本返回码非 0（即发现泄漏），**逐条判断**：
    - 是占位符/示例（如 `<example@example.com>`、`<proxy-port>`、`192.168.x.x`）→ 放行
-   - 是真实数据（私人邮箱、密码、token、公网 IP、本地路径）→ `git restore --staged <file>` 摘出，替换为占位符后重新 `git add`，必要时加进 `.gitignore`
+   - 是真实数据（私人邮箱、密码、token、公网 IP、本地路径、机器标识）→ `git restore --staged <file>` 摘出，替换为占位符后重新 `git add`，必要时加进 `.gitignore`
 4. **不得轻信"已脱敏"声明**：用户或第三方来源注明的"已脱敏处理"不能替代脚本扫描，Agent 必须独立验证
 5. 确认无泄漏再 commit
+
+### 4. 提交前防泄漏守卫（公开仓库，硬约束）
+
+本仓库公开，进入 git 的内容默认互联网可见。**禁止提交**：私钥/token/密码、个人邮箱、真实姓名、私人服务器地址、代理端口（HTTP/SOCKS 复用端口）、内部 IP、SSH 口令、VPS/VM 连接信息、机器标识（别名/平台/型号）。
+
+- 敏感凭据与连接信息放 `secrets/`（已 gitignore，见 `.gitignore` 与 `secrets/README.md`），**不入任何 commit/issue/PR/公开文档**。
+- 文档里举例远端/邮箱/端口一律用占位符：`<example@example.com>`、`<proxy-port>`、`<ssh-port>`、`<host>`。
+- **守卫自动执行**：`hooks/pre-commit`（`git config core.hooksPath hooks` 启用）→ `scripts/bash/check-sensitive.sh --staged`，命中敏感信息（公网 IP / 密钥路径 / 邮箱 / 私钥内容 / 机器标识）时阻断 commit。
+- **提交前核对流程（不得跳过）**：
+  1. `git add` 后先 `git diff --cached --name-only` 确认暂存区文件清单，无 `secrets/`、`*.pem`、`id_rsa`、`id_ed25519`、`*.key`、`credentials` 等；
+  2. `git diff --cached` 扫内容，发现真实 IP / 端口 / 邮箱 / token / 机器标识 → `git restore --staged <file>` 摘出，替换为占位符或删除后重新 `git add`；
+  3. 确认无泄漏再 `git commit`。
 
 ---
 
@@ -59,10 +72,7 @@ Agent 在执行 `git commit` 前必须按以下步骤执行，**不得跳过命�
 
 - 首行：`<type>: <概要>`，type 用 `feat` / `fix` / `docs` / `refactor` / `chore` / `test`
 - 空行后正文：要点列表，说明做了什么、为什么
-- 末尾 trailer（空行隔开）：
-  ```
-  Co-Authored-By: AtomCode <noreply@atomgit.com>
-  ```
+- 末尾 trailer（空行隔开）用 `Co-Authored-By`，名字填写**实际调用工具、执行本次提交的模型/Agent**（不是写代码的模型，二者可能不同——如强力模型写代码、切小模型来提交），不知道实际提交者则该名字不写；`noreply@` 域名无对应则不写域名只留名字。格式示例：`Co-Authored-By: <实际提交的Agent名> <noreply@<对应域名>>`。
 - 用 `git commit -m "$(cat <<'EOF' ... EOF)"` heredoc 保空行；`--amend` / `revert` 不加 trailer
 
 ### 3. 推送前确认
@@ -114,12 +124,12 @@ Agent 在执行 `git commit` 前必须按以下步骤执行，**不得跳过命�
 
 ### C. 交叉编译与部署
 
-- **交叉编译步骤**（Mac → Linux 远端）：
+- **交叉编译步骤**（本地开发机 → Linux 远端）：
   1. `rustup target add x86_64-unknown-linux-musl`
   2. `brew install FiloSottile/musl-cross/musl-cross`
   3. `.cargo/config.toml` 已配置链接器
   4. `cargo build --release --target x86_64-unknown-linux-musl`
-- **部署参考 `DEPLOY.md`**，或直接执行 `bash deploy/deploy.sh`（先把 `ARCH_HOST` 改成占位远端）。
+- **部署参考 `DEPLOY.md`**，或直接执行 `bash deploy/deploy.sh`（真实主机名只本地传参为 `REMOTE_HOST`，不设默认值；真实远端信息见本地 `secrets/remote-hosts.md`，不入库）。
 - **部署脱敏**：部署脚本、systemd unit、配置文件里不得留明文 SSH 口令、私服真实 IP。真实远端信息只存本地不入库。
 
 ### D. 设计原则
@@ -143,8 +153,8 @@ Agent 在执行 `git commit` 前必须按以下步骤执行，**不得跳过命�
 #### 实时数据源层级
 
 ```
-printer (Arch Linux, 24h 在线)  ←── 实时数据源
-├── Hub API (http://printer:9090 或 localhost:9090)
+常驻数据源机器（真实主机名/系统只存本地 secrets/remote-hosts.md，不入库）  ←── 实时数据源
+├── Hub API (http://<host>:9090 或 localhost:9090)
 │   ├── GET  /journal       → 全部已发现服务器 + 玩家名册（最全）
 │   ├── GET  /servers       → 服务器元数据 (MOTD, 版本, 在线人数等)
 │   ├── GET  /              → 节点元信息 + 端点列表
@@ -157,15 +167,15 @@ printer (Arch Linux, 24h 在线)  ←── 实时数据源
 
 #### Agent 新会话数据获取口诀
 
-1. **查发现结果** → `ssh printer 'curl -s http://localhost:9090/journal'`
-2. **查监控目标** → `ssh printer 'cat /opt/creeper/data/mc-targets.json'`
-3. **查探针状态** → `ssh printer 'curl -s http://localhost:9090/host-report'`
-4. **查服务状态** → `ssh printer 'sudo systemctl status creeper-hub creeper-monitor'`
+1. **查发现结果** → `ssh <host> 'curl -s http://localhost:9090/journal'`（`<host>` 取本地 `secrets/remote-hosts.md`）
+2. **查监控目标** → `ssh <host> 'cat /opt/creeper/data/mc-targets.json'`
+3. **查探针状态** → `ssh <host> 'curl -s http://localhost:9090/host-report'`
+4. **查服务状态** → `ssh <host> 'sudo systemctl status creeper-hub creeper-monitor'`
 5. **本地文件 (`data/`)** 只是种子模板，不作为数据源
 
 #### 为什么这样设计
 
-- `data/mc-targets.json` 在 git 中只有 2-3 个示例目标，但 printer 上 crawl 已发现 315 个服务器
-- 每次 `scp deploy` 会用 git 版本覆盖 printer 的运行时文件，所以 `targets` 数组会重置
+- `data/mc-targets.json` 在 git 中只有 2-3 个示例目标，但常驻机上 crawl 已发现 315 个服务器
+- 每次 `scp deploy` 会用 git 版本覆盖常驻机的运行时文件，所以 `targets` 数组会重置
 - 真正的完整数据在 Hub API 的 journal 中持久化，不受部署影响
 - Agent 新会话如果只读本地文件，拿到的信息落后 2 个数量级
