@@ -28,7 +28,7 @@ tower = "0.5"
 tokio-util = { version = "0.7", features = ["rt"] }
 sysinfo = "0.33"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-rmcp = { version = "=3.1.2", features = ["server", "transport-io"] }
+rmcp = { version = "=3.1.2", features = ["server", "transport-io", "transport-streamable-http-server"] }
 eframe = { version = "0.31", optional = true }
 
 [features]

@@ -1,8 +1,10 @@
-# MCP 服务器接入指南（stdio）
+# MCP 服务器接入指南（stdio + http）
 
-> `creeper mcp` 启动一个 **stdio MCP server**，把 creeper 的**只读数据面**与**单服探针**
+> `creeper mcp` 启动 MCP server，把 creeper 的**只读数据面**与**单服探针**
 > 暴露为 MCP 工具，供豆包连接器 / AtomCode / Claude / Cursor 等 MCP 客户端接入调用。
 >
+> 两种 transport：**默认 stdio**（进程内会话）；**HTTP**（Streamable HTTP，
+> 仅显式 `--http` 才起监听，**默认不监听、不立服务**）。
 > 实现：`src/mcp.rs`，基于 `rmcp` 3.1.2（**锁定版本**，见下方踩坑）。
 
 ## 1. 工具集（第一批：只读数据面 + 单服探针，不含攻击类）
@@ -50,7 +52,43 @@
 - 工具以 `mcp__<server键名>__<远端tool名>` 形式注册（如 `mcp__creeper__journal`）。
 - 配置位置：`<项目根>/.mcp.json`（仅本项目）或 `~/.atomcode/mcp.json`（全局）。
 
-## 4. 手动验证（stdio 协议，向进程喂 JSON-RPC）
+## 4. HTTP transport（可选；默认不开监听、不立服务）
+
+只有显式加 `--http` 才起 HTTP 服务，路径 `/mcp`：
+
+```bash
+creeper mcp --http --addr 127.0.0.1:3001   # http://127.0.0.1:3001/mcp
+```
+
+- 不加 `--http`：纯 stdio，**不监听任何端口**（`lsof -iTCP -sTCP:LISTEN` 无 creeper）。
+- `--addr` 默认 `127.0.0.1:3001`，按需改；端口被占会报 `Address already in use`。
+- 响应模式由客户端协商的协议自动决定：
+  - 协商 `2026-07-28`（最新）→ **直接 JSON**（无会话，curl/脚本友好）；
+  - 协商 legacy（2024-11-05 / 2025-03-26）→ SSE + `mcp-session-id` 会话。
+- 新版协议下非 initialize 请求**必须带 SEP-2243 头**：`Mcp-Method`、
+  有 name 的方法还需 `Mcp-Name`（RFC 2047 包装的 base64），body 带 `_meta`。
+
+### HTTP curl 示例（2026-07-28 协议，直回 JSON）
+
+```bash
+BASE=http://127.0.0.1:3001/mcp
+H='-H Content-Type:application/json -H "Accept:application/json, text/event-stream" -H MCP-Protocol-Version:2026-07-28'
+
+# initialize
+curl -s -X POST $BASE $H \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+
+# tools/list（需 Mcp-Method 头 + _meta）
+curl -s -X POST $BASE $H -H "Mcp-Method: tools/list" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
+
+# tools/call（需 Mcp-Method + Mcp-Name，名称按 RFC 2047 包装 base64）
+NAME=$(printf 'hub_status' | base64)
+curl -s -X POST $BASE $H -H "Mcp-Method: tools/call" -H "Mcp-Name: =?base64?${NAME}?=" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hub_status","arguments":{"hub":"http://localhost:9090"},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'
+```
+
+## 5. 手动验证（stdio 协议，向进程喂 JSON-RPC）
 
 先构建 release（`cargo build --release`），然后：
 
@@ -72,7 +110,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion
 printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manual","version":"0"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hub_status","arguments":{"hub":"http://localhost:9090"}}}\n' | timeout 20 ./target/release/creeper mcp
 ```
 
-## 5. 踩坑记录（对抗上下文压缩）
+## 6. 踩坑记录（对抗上下文压缩）
 
 1. **STDIO 连接器必须显式传 `mcp` 参数**：豆包连接器填了命令但没填参数，拉起的是
    无参数的 `creeper`（进 help/交互），JSON-RPC 握手无响应 → 连接器「运行失败」。
@@ -90,3 +128,11 @@ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion
 5. **hub URL 不依赖 cwd**：MCP 连接器从自己的工作目录拉起子进程（非项目根），
    config 相对路径找不到时工具用兜底 `http://localhost:9090`；连真实 hub 时
    请显式传 `hub` 参数。
+6. **HTTP `Accept` 必须同时声明两种类型**：只发 `Accept: application/json` 会被
+   406 拒绝（rmcp 要求客户端同时接受 `application/json` 与 `text/event-stream`）。
+7. **新版协议（2026-07-28）下 curl 直调要带 SEP-2243 头**：非 initialize 请求缺
+   `Mcp-Method` 报 `-32020 missing required Mcp-Method header`；`tools/call` 的
+   `Mcp-Name` 需 `=?base64?<b64>?=` 形式，裸 base64 报「does not match body value」；
+   body 的 `_meta` 需带 `protocolVersion` 与 `clientCapabilities`。
+8. **HTTP 默认不开监听**：忘加 `--http` 就是纯 stdio，客户端用 http URL 连不上；
+   端口占用报 `Address already in use (os error 48)`——换 `--addr` 或先停旧进程。

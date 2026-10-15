@@ -579,9 +579,17 @@ enum Commands {
         yes: bool,
     },
 
-    /// 启动 MCP (Model Context Protocol) stdio server。
+    /// 启动 MCP server。默认 stdio（不开监听、不立服务）；加 --http 起 HTTP 监听。
     /// 暴露只读数据面（hub 查询）与单服探针；不含攻击/抹盘/扫描发现类操作。
-    Mcp,
+    Mcp {
+        /// 起 HTTP transport（Streamable HTTP，路径 /mcp）；缺省 stdio、不监听任何端口
+        #[arg(long)]
+        http: bool,
+
+        /// HTTP 绑定地址（配合 --http）
+        #[arg(long, default_value = "127.0.0.1:3001")]
+        addr: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -695,8 +703,8 @@ async fn main() -> anyhow::Result<()> {
     // 会污染协议流，客户端按行解析 JSON 失败（连接器表现为「连接失败/运行失败」）。
     // 参考 ouchn-toolkit / rust-verb-shell 的 mcp 分支做法；此处也不加载 config——
     // hub URL 由每次工具调用按参数/config 独立解析。
-    if matches!(cli.command, Some(Commands::Mcp)) {
-        return mcp::run().await;
+    if let Some(Commands::Mcp { http, addr }) = &cli.command {
+        return mcp::run(*http, addr).await;
     }
 
     logging::init();
@@ -1603,7 +1611,7 @@ async fn main() -> anyhow::Result<()> {
             Cli::command().print_help()?;
         }
 
-        Some(Commands::Mcp) => {
+        Some(Commands::Mcp { .. }) => {
             // 不可达：mcp 分支已在 main() 顶部最先拦截（保证 stdout 协议流纯净）。
             unreachable!("Mcp 应在 main 顶部分支执行");
         }

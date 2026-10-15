@@ -1,10 +1,12 @@
-//! MCP (Model Context Protocol) stdio 服务器。
+//! MCP (Model Context Protocol) 服务器。
 //!
 //! 将 creeper 的**只读数据面**（hub 查询）与**单服探针**暴露为 MCP tools，
 //! 供 MCP 客户端（豆包连接器 / AtomCode / Claude / Cursor 等）接入调用。
 //!
-//! 运行：`creeper mcp`
-//! 客户端配置：`{ "command": "<target>/release/creeper", "args": ["mcp"] }`
+//! 运行：`creeper mcp`（默认 stdio）；`creeper mcp --http --addr 127.0.0.1:3001`
+//!       起 HTTP（Streamable HTTP）监听。**HTTP 默认不开监听、不立服务**，
+//!       只有显式 `--http` 才绑定端口。
+//! 客户端配置：`{ "command": "<install>/bin/creeper", "args": ["mcp"] }`
 //!
 //! 实现参考：
 //! - `rust-backup-tool/src/mcp.rs`（rmcp 3.1.2 + 手动 `ServerHandler`，stdio 验证可用）
@@ -12,7 +14,7 @@
 //!   initialize 后提前退出问题，故锁定 3.1.2 并手动实现）
 //!
 //! 设计要点：
-//! 1. **stdout 纯净**：MCP 的 JSON-RPC 走 stdin/stdout，任何 `println!`
+//! 1. **stdio stdout 纯净**：MCP 的 JSON-RPC 走 stdin/stdout，任何 `println!`
 //!    都会污染协议流——工具返回结构化 JSON 文本，日志一律走 stderr。
 //! 2. **只读边界**：只暴露 hub 查询（journal/servers/status/host-report/info）
 //!    与单服探针（MOTD/版本/玩家数）。**不暴露**攻击类（stress/flood/attack
@@ -22,6 +24,8 @@
 //!    hub 端点（与 AGENTS.md「实时数据源」一致），hub URL 缺省从 config 解析。
 //! 4. **调用留痕**：每次工具调用追加到 `~/.cache/creeper/mcp-audit.jsonl`
 //!    （who/what/ok/message/elapsed），供 Agent 排查自己的调用链。
+//! 5. **transport**：默认 stdio（进程内直接会话）；HTTP 用 rmcp 的
+//!    `StreamableHttpService` 挂到 axum（项目已有），路径 `/mcp`。
 
 use rmcp::model::*;
 use rmcp::service::{RequestContext, RoleServer};
@@ -214,7 +218,7 @@ impl ServerHandler for CreeperMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(
-                "creeper data plane via MCP (stdio). Tools: hub_info / journal / servers / \
+                "creeper data plane via MCP (stdio/http). Tools: hub_info / journal / servers / \
                  hub_status / host_report / probe_server. 只读数据面 + 单服探针；\
                  不含任何攻击/抹盘/扫描发现类操作。hub 参数缺省从本地 config 解析。",
             )
@@ -407,15 +411,52 @@ pub async fn serve_stdio(server: CreeperMcp) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// main.rs 入口：启动 stdio server。
-pub async fn run() -> anyhow::Result<()> {
-    eprintln!(
-        "[creeper-mcp] stdio server starting (v{}).",
-        env!("CARGO_PKG_VERSION")
+/// main.rs 入口：启动 MCP server。
+/// 默认 stdio；`http=true` 时起 HTTP（Streamable HTTP）监听，地址由 `addr` 指定。
+pub async fn run(http: bool, addr: &str) -> anyhow::Result<()> {
+    if http {
+        eprintln!(
+            "[creeper-mcp] http server starting (v{}).",
+            env!("CARGO_PKG_VERSION")
+        );
+        serve_http(addr).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    } else {
+        eprintln!(
+            "[creeper-mcp] stdio server starting (v{}).",
+            env!("CARGO_PKG_VERSION")
+        );
+        serve_stdio(CreeperMcp::new())
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
+    Ok(())
+}
+
+/// 在 HTTP（Streamable HTTP，MCP 官方 transport）上启动 MCP server。
+/// 仅显式 `creeper mcp --http` 时调用——默认不监听、不立服务。
+/// 挂载路径 `/mcp`；复用项目已有的 axum 栈。
+pub async fn serve_http(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+    use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
+
+    // StreamableHttpServerConfig 是 #[non_exhaustive]，外部 crate 不能用
+    // 结构体字面量（含 `..` 更新），只能 Default 后按字段赋值。
+    let mut config = StreamableHttpServerConfig::default();
+    // 无会话 + 简单请求-响应直接回 JSON：initialize/tools/list/tools/call
+    // 一次 POST 拿全响应，curl/脚本可直接调用（真实 MCP 客户端同样兼容）。
+    config.json_response = true;
+    config.legacy_session_mode = false;
+    let service = StreamableHttpService::new(
+        || Ok(CreeperMcp::new()),
+        Arc::new(LocalSessionManager::default()),
+        config,
     );
-    serve_stdio(CreeperMcp::new())
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let app = axum::Router::new().route_service("/mcp", service);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    eprintln!(
+        "[creeper-mcp] http server listening on http://{addr}/mcp (Ctrl-C 停止)"
+    );
+    axum::serve(listener, app).await?;
     Ok(())
 }
 
