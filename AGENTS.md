@@ -66,7 +66,10 @@ Agent 在执行 `git commit` 前必须按以下步骤执行，**不得跳过命�
 
 ### 1. 何时自动提交
 
-当人类明确要求"提交并推送"、"你来处理提交"等时，Agent 可直接执行 `git add` → `git commit` → `git push`，无需每步停下问人。
+**人类已授权自动提交（2026-10-16）**：本项目的代码/文档改动由 Agent 直接
+`git add` → `git commit` → `git push`，**无需逐次询问批准**。仍须遵守
+守卫（pre-commit 钩子）与 commit message 规范；PR/issue/追评等**外发沟通动作**
+仍须人类明确批准。
 
 ### 2. commit message 规范
 
