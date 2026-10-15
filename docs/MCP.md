@@ -27,7 +27,7 @@
 
 「新建/编辑自定义连接器」→ 传输方式选 **STDIO**：
 
-- **命令**：`/usr/local/bin/creeper`（软链 → `target/release/creeper`，rebuild 后自动更新；绝对路径不依赖 PATH）
+- **命令**：`/Users/user2/.cargo/bin/creeper`（`cargo install --path .` 常驻副本，清 `target/` 不影响；源码更新后需重跑 `cargo install --path . --force` 刷新）
 - **参数**：点「+ 添加」填 `mcp`（**必须填参数**，漏掉表现为连接器「运行失败」，见踩坑 1）
 
 保存后连接器应显示运行中；`pgrep -f "creeper mcp"` 可见子进程。
@@ -38,7 +38,7 @@
 {
   "mcpServers": {
     "creeper": {
-      "command": "/usr/local/bin/creeper",
+      "command": "/Users/user2/.cargo/bin/creeper",
       "args": ["mcp"],
       "autoApprove": ["hub_info", "journal", "servers", "hub_status", "host_report"]
     }
