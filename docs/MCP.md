@@ -27,7 +27,7 @@
 
 「新建/编辑自定义连接器」→ 传输方式选 **STDIO**：
 
-- **命令**：`/Users/user2/Documents/Code.localized/rust-creeper/target/release/creeper`
+- **命令**：`/usr/local/bin/creeper`（软链 → `target/release/creeper`，rebuild 后自动更新；绝对路径不依赖 PATH）
 - **参数**：点「+ 添加」填 `mcp`（**必须填参数**，漏掉表现为连接器「运行失败」，见踩坑 1）
 
 保存后连接器应显示运行中；`pgrep -f "creeper mcp"` 可见子进程。
@@ -38,7 +38,7 @@
 {
   "mcpServers": {
     "creeper": {
-      "command": "/Users/user2/Documents/Code.localized/rust-creeper/target/release/creeper",
+      "command": "/usr/local/bin/creeper",
       "args": ["mcp"],
       "autoApprove": ["hub_info", "journal", "servers", "hub_status", "host_report"]
     }
