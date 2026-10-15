@@ -59,10 +59,12 @@ MCP 客户端（豆包连接器 / AtomCode / Claude / Cursor）的配置本质�
 
 ### STDIO（默认，客户端拉起子进程，不占端口）
 
-豆包桌面端「自定义连接器」→ STDIO：
+豆包桌面端「自定义连接器」→ STDIO。`mcp` 子命令**必须出现在命令行里**，两种写法等价：
 
-- **命令**：`/Users/user2/.cargo/bin/creeper`
-- **参数**：`mcp`（漏填参数 → 连接器「运行失败」）
+- **写法 A**：命令填 `creeper mcp`（空格形式，参数留空）
+- **写法 B**：命令填 `/Users/user2/.cargo/bin/creeper`（或 `creeper`，需在 PATH），参数填 `mcp`
+
+推荐写法 B：绝对路径不依赖 PATH，`mcp` 独立成参数更清晰。
 
 AtomCode / Claude / Cursor 的 `.mcp.json`：
 
@@ -95,7 +97,7 @@ creeper mcp --http --addr 127.0.0.1:3001
 
 | 现象 | 原因与处理 |
 |---|---|
-| 连接器「运行失败」 | 多半漏了 `mcp` 参数；补上即可 |
+| 连接器「运行失败」 | 命令行里漏了 `mcp`（命令和参数二选一放即可）；补上再试 |
 | HTTP 连不上 | 忘了加 `--http`（默认纯 stdio 不监听）；加上再连 |
 | `Address already in use` | 端口被占；换 `--addr` 端口或先停旧进程 |
 | 版本对不上（`--version` 旧） | 源码改动后没重装；`cargo install --path . --force` |

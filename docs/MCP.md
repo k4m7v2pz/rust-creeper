@@ -27,10 +27,15 @@
 
 ## 2. 接入豆包桌面端（STDIO 连接器）
 
-「新建/编辑自定义连接器」→ 传输方式选 **STDIO**：
+「新建/编辑自定义连接器」→ 传输方式选 **STDIO**。`mcp` 子命令**必须出现在
+命令行里**，两种写法等价（连接器把命令+参数拼成命令行执行）：
 
-- **命令**：`/Users/user2/.cargo/bin/creeper`（`cargo install --path .` 常驻副本，清 `target/` 不影响；源码更新后需重跑 `cargo install --path . --force` 刷新）
-- **参数**：点「+ 添加」填 `mcp`（**必须填参数**，漏掉表现为连接器「运行失败」，见踩坑 1）
+- 写法 A：**命令**填 `creeper mcp`（空格形式，参数留空）；
+- 写法 B：**命令**填 `/Users/user2/.cargo/bin/creeper`（或 `creeper`，需在 PATH），
+  **参数**填 `mcp`。
+
+两种都行；**漏掉 `mcp` 才会失败**（拉起无参 `creeper`，见踩坑 1）。推荐写法 B：
+绝对路径不依赖 PATH，`mcp` 独立成参数更清晰。
 
 保存后连接器应显示运行中；`pgrep -f "creeper mcp"` 可见子进程。
 
@@ -112,8 +117,10 @@ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion
 
 ## 6. 踩坑记录（对抗上下文压缩）
 
-1. **STDIO 连接器必须显式传 `mcp` 参数**：豆包连接器填了命令但没填参数，拉起的是
-   无参数的 `creeper`（进 help/交互），JSON-RPC 握手无响应 → 连接器「运行失败」。
+1. **`mcp` 必须出现在命令行里（命令或参数，二选一）**：豆包连接器把「命令+参数」
+   拼成命令行执行，命令填 `creeper mcp`（空格形式）与命令 `creeper`+参数 `mcp`
+   等价；**两者都漏**（只填了命令没带 `mcp`）时，拉起的是无参数的 `creeper`
+   （进 help/交互），JSON-RPC 握手无响应 → 连接器「运行失败」。
 2. **rmcp 3.4.0 stdio 有 bug：initialize 响应后立即 `task cancelled`，tools/list 无响应**。
    降级到 **rmcp 3.1.2** 并手动实现 `ServerHandler`（`get_info`/`list_tools`/`call_tool`，
    参考 `rust-verb-shell/crates/rvs-mcp`）后正常。本项目 Cargo.toml 已锁定
