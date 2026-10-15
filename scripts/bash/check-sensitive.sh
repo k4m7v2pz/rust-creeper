@@ -42,11 +42,13 @@ else
 fi
 [[ ${#files[@]} -eq 0 ]] && exit 0
 
-# ── 豁免清单：政策/守卫自身文件 ──────────────────────────────────
+# ── 豁免清单：政策/守卫自身/生成物文件 ──────────────────────────────
 # 这些文件引用密钥文件名、IP 等词是必要的「规则描述」，不是真实资产：
 #   AGENTS.md                    脱敏政策（禁例示例）
 #   scripts/bash/check-sensitive.sh / hooks/pre-commit   守卫自身（正则与说明）
-exempt_files=("AGENTS.md" "scripts/bash/check-sensitive.sh" "hooks/pre-commit")
+#   Cargo.lock                   生成锁文件；crate 版本号（如 1.3.268.0）
+#                               会被 IPv4 正则误判，且内容完全由 Cargo.toml 决定
+exempt_files=("AGENTS.md" "scripts/bash/check-sensitive.sh" "hooks/pre-commit" "Cargo.lock")
 filtered=()
 for f in "${files[@]}"; do
   skip=0

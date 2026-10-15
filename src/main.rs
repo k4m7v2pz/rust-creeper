@@ -24,6 +24,7 @@ mod factory;
 mod gui;
 mod http_flood;
 mod logging;
+mod mcp;
 mod motd;
 mod options;
 mod protocol;
@@ -577,6 +578,10 @@ enum Commands {
         #[arg(short = 'y', long)]
         yes: bool,
     },
+
+    /// 启动 MCP (Model Context Protocol) stdio server。
+    /// 暴露只读数据面（hub 查询）与单服探针；不含攻击/抹盘/扫描发现类操作。
+    Mcp,
 }
 
 #[derive(Subcommand)]
@@ -683,8 +688,18 @@ enum StatusScope {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    logging::init();
     let cli = Cli::parse();
+
+    // MCP stdio server：必须在任何日志初始化 / stdout 输出之前分支。
+    // stdout 是 MCP 的 NDJSON 协议通道，日志（含 rmcp 内部 INFO）一旦写 stdout
+    // 会污染协议流，客户端按行解析 JSON 失败（连接器表现为「连接失败/运行失败」）。
+    // 参考 ouchn-toolkit / rust-verb-shell 的 mcp 分支做法；此处也不加载 config——
+    // hub URL 由每次工具调用按参数/config 独立解析。
+    if matches!(cli.command, Some(Commands::Mcp)) {
+        return mcp::run().await;
+    }
+
+    logging::init();
 
     match cli.command {
         Some(Commands::Config { show, default: print_def, edit, action }) => {
@@ -1586,6 +1601,11 @@ async fn main() -> anyhow::Result<()> {
         None => {
             use clap::CommandFactory;
             Cli::command().print_help()?;
+        }
+
+        Some(Commands::Mcp) => {
+            // 不可达：mcp 分支已在 main() 顶部最先拦截（保证 stdout 协议流纯净）。
+            unreachable!("Mcp 应在 main 顶部分支执行");
         }
     }
 
